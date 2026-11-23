@@ -265,11 +265,11 @@ flowchart TD
 
 | 分层 | 选型与版本 | 工程职责 |
 |---|---|---|
-| **前端框架** | React 19 + TypeScript 5.8 + Vite 8 + Tailwind CSS 4 + COSS UI (`@base-ui/react`) | Notion 风格 14 模块工作台、内存 JWT 状态、Fetch 流式 SSE 客户端 |
+| **前端框架** | React 19 + TypeScript 5.8 + Vite 8 + Tailwind CSS v4 + COSS UI (`@base-ui/react`) | **Notion 风格极简暖白设计系统**（纯白主画布 `#FFFFFF` / 暖灰侧边栏 `#F7F7F5` / 极细分割线 `#E9E9E7`），14 个全功能业务工作台、内存 JWT 状态与 Fetch 流式 SSE |
 | **状态与表单** | TanStack Query v5 + React Router v7 + React Hook Form + Zod v4 | 数据缓存同步、路由守卫与强类型表单校验 |
-| **后端 API** | Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2.x Async + `asyncpg` | 模块化单体服务、事务级 RLS 会话、统一脱敏异常与 Idempotency |
-| **异步任务** | Celery 5.4 + Kombu（5 条物理隔离队列）+ Celery Beat | 文档解析、向量构建、Outbox 中继与定时 FAQ 挖掘 |
-| **关系数据库** | PostgreSQL 17（`postgres:17-alpine`） | 双角色权限分离、UUID v7 主键、41 张已迁移表（34 张启用 FORCE RLS） |
+| **后端 API** | Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2.x Async + `asyncpg` | 模块化单体服务、事务级 RLS 会话、61 个已上线 `/api/v1` 路径（73 个 HTTP/SSE 操作）、Idempotency |
+| **异步任务** | Celery 5.4 + Kombu（5 条物理隔离队列）+ Celery Beat | 文档解析、向量构建、Outbox 中继与定时 HDBSCAN FAQ 挖掘 |
+| **关系数据库** | PostgreSQL 17（`postgres:17-alpine`） | 双角色权限分离、UUID v7 主键、全库 69 张表（68 张领域表 + `alembic_version`，**61 张租户表启用 FORCE RLS**） |
 | **向量数据库** | Qdrant（`qdrant/qdrant:latest`）+ `jieba` 中文 BM25 Sparse | 按 Profile 共享 Collection、Dense + Sparse 混合检索与蓝绿切换 |
 | **对象存储** | MinIO（`coollabsio/minio:latest`） | 私有桶 `dochub-raw`（原始上传）与 `dochub-artifacts`（解析产物） |
 | **缓存与队列** | Redis 7（`redis:7-alpine`, `volatile-lru`） | DB0 业务缓存、DB1 Celery Broker、DB2 Result Backend |
@@ -295,13 +295,13 @@ DocHub/
 │   ├── backup.ps1                        # PostgreSQL + MinIO + Qdrant 全量备份与 SHA256 清单生成
 │   └── restore.ps1                       # 前置哈希校验、无损恢复演练（-DrillOnly）与受控实库恢复
 ├── backend/
-│   ├── alembic/versions/                 # 单头线性迁移（0001_slice1_iam_rls.py, 0002_slice2_3_space_acl_docs_index.py）
+│   ├── alembic/versions/                 # 单头线性迁移（0001_slice1 / 0002_slice2_3 / 0003_slice4_8，共 68 张领域表）
 │   ├── app/
 │   │   ├── main.py                       # FastAPI 工厂、CORS 白名单、RequestIdMiddleware、OTel/Prometheus 挂载
-│   │   ├── api/v1/                       # /api/v1 聚合路由与 /healthz、/readyz 探针
+│   │   ├── api/v1/                       # /api/v1 聚合路由（61 个路径 / 73 个端点）与 /healthz、/readyz 探针
 │   │   ├── core/                         # config, errors, idempotency, ids(UUID v7), logging(脱敏), pagination, security, telemetry
 │   │   ├── db/                           # base(TenantMixin), session(org_rls_session/user_rls_session), seed(演示组织与账号)
-│   │   ├── workers/celery_app.py         # 5 队列隔离拓扑、IdempotentRetryTask 指数退避基类、Beat 调度骨架
+│   │   ├── workers/                      # celery_app(5 队列拓扑与 Beat 调度)、tasks(流水线任务与 OutboxDispatcherService)
 │   │   └── modules/
 │   │       ├── identity/                 # Argon2id 登录、Refresh Rotation、重放家族吊销、CSRF、OrgContext
 │   │       ├── organizations/            # 多组织管理、成员管理、切换活跃组织
@@ -313,22 +313,24 @@ DocHub/
 │   │       ├── parsing/                  # ParserRouter、MinerUOfficialAdapter、6 类轻量解析器、LocalOCRParserAdapter
 │   │       ├── chunking/                 # StructureAwareChunker（Parent-Child、跨页表头保留、公式图片原子性）
 │   │       ├── embeddings/               # QwenEmbeddingProvider / LocalBGEEmbeddingProvider / ChineseSparseVectorizer
-│   │       ├── indexing/                 # QdrantIndexStore 混合检索、IndexGeneration 与 ActiveIndexPointer 蓝绿模型
+│   │       ├── indexing/                 # DocumentIngestionPipeline、QdrantIndexStore、蓝绿 IndexGeneration 与指针回滚路由
 │   │       ├── retrieval/                # MultiSpaceHybridRetriever、跨 Space 排名 RRF、ContextBuilder(<untrusted_evidence>)
-│   │       ├── providers/                # DataEgressPolicyEngine、OpenAICompatibleLLMProvider、RerankerRouter
-│   │       ├── outbox/                   # OutboxEvent、ProcessedMessage 幂等去重、IdempotencyRecord
-│   │       ├── audit/ & jobs/            # 业务审计与安全审计分离记录、AsyncJob 模型
-│   │       └── chat/ citations/ faq/ knowledge_gaps/ analytics/  # Slice 4–8 后端领域包（待合入完整路由实现）
-│   └── tests/                            # L0–L3 测试套件（phase0、slice1、slice2、parsers/chunking、qdrant_hybrid）
+│   │       ├── providers/                # DataEgressPolicyEngine、OpenAICompatibleLLMProvider、RerankerRouter、脱敏配置路由
+│   │       ├── chat/ & citations/        # 受 ACL 保护的 Fetch SSE 问答流、Query Rewrite、段落级历史重鉴权与引用复核
+│   │       ├── faq/ & knowledge_gaps/    # PII 脱敏挖掘(HDBSCAN)、禁自审、三轴治理、交集 ACL、Redis 缓存与 11 态 Gap 闭环
+│   │       ├── analytics/ & audit/       # 组织隔离运营指标、Benchmark 评测与业务/安全双审计中心
+│   │       └── outbox/ & jobs/           # OutboxEvent、ProcessedMessage 幂等去重、IdempotencyRecord、AsyncJob 模型
+│   └── tests/                            # 9 个后端 Pytest 测试套件（phase0、slice1~8、parsers/chunking、qdrant_hybrid）
 └── frontend/
     └── src/
         ├── App.tsx                       # 14 个 PRD 页面路由树（RequireAuth 守卫）
         ├── config/navigation.ts          # 侧边栏分组与工作台导航契约
+        ├── styles/globals.css            # Notion 风格极简暖白设计系统令牌（Tailwind v4 @theme）
         ├── components/ui/                # 源码内聚的 COSS UI 基础组件库（MIT）
         ├── lib/                          # auth-store(纯内存Token)、api-client(401单次静默续期)、sse-client(7类事件解析)
         ├── features/                     # iam, spaces, documents, acl, chat, faq, gaps, governance API 与子组件
-        ├── pages/                        # 14 个全中文 Notion 风格业务页面
-        └── __tests__/                    # Vitest 前端单元与安全/流式回归测试
+        ├── pages/                        # 14 个全中文 Notion 风格业务工作台页面
+        └── __tests__/                    # 4 个 Vitest 前端单元与安全/流式回归测试套件
 ```
 
 ---
@@ -352,36 +354,43 @@ DocHub/
      未设置变量时 `NULLIF(..., '')` 返回 `NULL`，任何 `organization_id = NULL` 均为 `UNKNOWN/FALSE`，**默认返回 0 行**。
    - 针对登录前尚未知晓目标组织的 `organization_members` 表，采用 `user_rls_session` 配合双变量策略（`USING (organization_id = ... OR user_id = ...)`，而 `WITH CHECK` 仍严格要求 `organization_id`）。
 
-### 4.2 核心数据库域清单（41 张已迁移表 + Slice 4–8 领域表）
+### 4.2 核心数据库域清单（全库 69 张表，61 张租户表启用 FORCE RLS）
 
-| 领域 | 已在 Alembic 落地的表（`0001` + `0002`，共 41 张） | RLS 状态 | Slice 4–8 规格扩展表（见 `TECHNICAL_SPEC.md` §5.5–5.8） |
+经 [`0001_slice1_iam_rls.py`](backend/alembic/versions/0001_slice1_iam_rls.py)（16 张）、[`0002_slice2_3_space_acl_docs_index.py`](backend/alembic/versions/0002_slice2_3_space_acl_docs_index.py)（25 张）与 [`0003_slice4_8_chat_faq_gap_benchmark.py`](backend/alembic/versions/0003_slice4_8_chat_faq_gap_benchmark.py)（27 张）三次线性单头迁移，数据库共创建 **68 张领域表**（含 `alembic_version` 元数据表共 **69 张表**），其中除 7 张平台级全局表外，**全部 61 张业务租户表均强制包含 `organization_id UUID NOT NULL` 并开启 `ENABLE + FORCE ROW LEVEL SECURITY`**：
+
+| 领域 | 已在 Alembic 落地的表清单（共 68 张领域表 + `alembic_version` = 69 张） | 迁移版本 | RLS 状态 |
 |---|---|---|---|
-| **平台身份与全局字典** | `users`, `organizations`, `user_sessions`, `permissions`, `system_roles`, `system_role_permissions`, `user_system_roles`（7 张） | 平台级全局表 | — |
-| **组织、部门与 RBAC** | `organization_members`, `departments`, `department_closures`, `department_memberships`, `organization_roles`, `organization_role_permissions`, `user_role_memberships`（7 张） | **FORCE RLS** | — |
-| **空间与四维 ACL** | `knowledge_spaces`, `space_memberships`, `space_policies`, `document_acls`, `acl_grants`, `acl_grant_department_snapshots`, `acl_revisions`, `break_glass_grants`（8 张） | **FORCE RLS** | — |
-| **文档、解析与切片** | `documents`, `document_versions`, `import_jobs`, `parse_jobs`, `parsed_artifacts`, `parsed_blocks`, `chunk_sets`, `chunks`（8 张） | **FORCE RLS** | — |
-| **向量与蓝绿索引** | `embedding_providers`, `embedding_profiles`, `index_generations`, `active_index_pointers`, `index_jobs`（5 张） | **FORCE RLS** | — |
-| **Outbox / 幂等 / 审计** | `outbox_events`, `processed_messages`, `idempotency_records`, `async_jobs`, `audit_events`, `security_audit_events`（6 张） | **FORCE RLS** | — |
-| **AI 问答与检索审计** | — | **FORCE RLS（规划）** | `conversations`, `conversation_spaces`, `messages`, `message_segments`, `retrieval_audits`, `retrieval_candidates`, `retrieval_decisions`, `answer_citations`, `llm_usages` |
-| **FAQ 与 Knowledge Gap** | — | **FORCE RLS（规划）** | `faqs`, `faq_versions`, `faq_segments`, `faq_source_refs`, `faq_acls`, `faq_reviews`, `faq_publish_records`, `faq_cache_indices`, `question_events`, `question_clusters`, `question_cluster_members`, `faq_candidates`, `knowledge_gaps`, `knowledge_gap_tasks`, `benchmark_runs`, `benchmark_case_results` |
+| **平台身份与全局字典** | `users`, `organizations`, `user_sessions`, `permissions`, `system_roles`, `system_role_permissions`, `user_system_roles`（7 张） | `0001` | 平台级全局表 |
+| **组织、部门与 RBAC** | `organization_members`, `departments`, `department_closures`, `department_memberships`, `organization_roles`, `organization_role_permissions`, `user_role_memberships`（7 张） | `0001` | **FORCE RLS** |
+| **空间与四维 ACL** | `knowledge_spaces`, `space_memberships`, `space_policies`, `document_acls`, `acl_grants`, `acl_grant_department_snapshots`, `acl_revisions`, `break_glass_grants`（8 张） | `0002` | **FORCE RLS** |
+| **文档、解析与切片** | `documents`, `document_versions`, `import_jobs`, `parse_jobs`, `parsed_artifacts`, `parsed_blocks`, `chunk_sets`, `chunks`（8 张） | `0002` | **FORCE RLS** |
+| **向量与蓝绿索引** | `embedding_providers`, `embedding_profiles`, `index_generations`, `active_index_pointers`, `index_jobs`（5 张） | `0002` | **FORCE RLS** |
+| **Outbox / 幂等 / 任务** | `outbox_events`, `processed_messages`, `idempotency_records`, `async_jobs`（4 张） | `0002` | **FORCE RLS** |
+| **AI 问答与检索审计** | `conversations`, `conversation_spaces`, `messages`, `message_segments`, `answer_citations`, `retrieval_audits`, `retrieval_candidates`, `retrieval_decisions`, `llm_usages`, `message_feedbacks`（10 张） | `0003` | **FORCE RLS** |
+| **FAQ 与三轴治理** | `faqs`, `faq_versions`, `faq_segments`, `faq_source_refs`, `faq_acls`, `faq_reviews`, `faq_publish_records`, `faq_cache_indexes`（8 张） | `0003` | **FORCE RLS** |
+| **挖掘与 Knowledge Gap** | `question_events`, `question_clusters`, `question_cluster_members`, `faq_candidates`, `knowledge_gaps`, `knowledge_gap_tasks`（6 张） | `0003` | **FORCE RLS** |
+| **审计 / 策略 / 评测** | `audit_events`, `security_audit_events`（2 张，`0001`）；`organization_provider_policies`, `benchmark_runs`, `benchmark_case_results`（3 张，`0003`） | `0001` / `0003` | **FORCE RLS** |
 
 ---
 
 ## 5. RESTful `/api/v1` 核心接口总览
 
-所有业务路由统一挂载于 `/api/v1` 前缀下，写操作关键入口强制校验 `Idempotency-Key`（作用域绑定 `principal + organization + operation`）：
+全平台 **61 个 `/api/v1` 路径（共 73 个 HTTP / SSE 操作端点）** 均已挂载至 [`backend/app/api/v1/router.py`](backend/app/api/v1/router.py) 并投入运行，关键写操作强制校验 `Idempotency-Key`（作用域绑定 `principal + organization + operation`）：
 
-| 领域 | HTTP 方法与路径 | 核心职责与安全机制 | 当前状态 |
+| 领域 | 已上线 HTTP 方法与路径（`/api/v1/*`） | 核心职责与安全机制 | 状态 |
 |---|---|---|---|
-| **健康探针** | `GET /api/v1/healthz`、`GET /api/v1/readyz` | 进程存活与 PG / Redis / MinIO / Qdrant 脱敏连通性探测 | 已实现 |
-| **身份认证** | `POST /api/v1/auth/login`、`POST /auth/refresh`、`POST /auth/logout`、`GET /auth/me` | Argon2id 校验、内存 Access JWT、HttpOnly Refresh Rotation + 重放家族吊销、CSRF 双提交 | 已实现 |
-| **组织与部门** | `GET/POST /api/v1/organizations`、`POST /organizations/{org_id}/switch`、`GET/POST/PATCH /organizations/{org_id}/members`、`GET/POST/PATCH /organizations/{org_id}/departments`、`GET/POST/DELETE .../memberships` | 组织切换、Closure Table 维护、防环子树移动、多部门有效期兼职 | 已实现 |
-| **角色权限** | `GET /api/v1/permissions`、`GET/POST /organizations/{org_id}/roles`、`POST/DELETE .../assign` | SystemRole 与 OrganizationRole 分离、`SYSTEM_ADMIN` 零业务读旁路 | 已实现 |
-| **知识空间** | `GET/POST/PATCH /api/v1/organizations/{org_id}/spaces`、`GET/PATCH /spaces/{space_id}/members` | `PUBLIC`/`PRIVATE` 可见性、私有空间有效期内显式成员授权 | 已实现 |
-| **文档四维 ACL** | `GET /api/v1/documents/{document_id}/acl`、`GET .../acl/revisions`、`POST .../acl/revisions` | 唯一写入口（ADR-001）：`expected_revision` 乐观锁 + `Idempotency-Key` + 快照展开 + Outbox | 已实现 |
-| **文档与版本** | `POST /api/v1/spaces/{space_id}/documents/uploads`、`POST /documents/uploads/{upload_id}/complete`、`POST /spaces/{space_id}/documents/import-batches`、`GET /documents`、`GET /documents/{id}`、`GET .../versions`、`GET /document-versions/{id}/processing-status`、`POST .../reprocess`、`POST .../publish` | 直传与 MinIO 预签名 PUT、SHA-256 核验、默认 `QUARANTINED` 隔离、非空 ACL 发布解锁 | 已实现 |
-| **AI 问答与引用** | `POST/GET /api/v1/chat/conversations`、`GET .../conversations/{id}`、`POST .../messages:stream`、`POST /chat/messages/{id}/cancel`、`POST .../feedback`、`GET /citations/{citation_id}` | Fetch Streaming 7 类 SSE 事件、历史分段重鉴权、引用级权限复核 | 规格契约（前端已对齐） |
-| **FAQ 与缺口** | `POST /api/v1/faq-mining/runs`、`GET /faq-candidates`、`POST .../submit-review`、`POST /faq/{id}/reviews`、`POST /faq/{id}/publish`、`POST /faq/{id}/disable`、`GET/POST /faq`、`GET /knowledge-gaps`、`POST .../tasks`、`PATCH /knowledge-gap-tasks/{id}`、`GET /analytics/*` | 双模挖掘、禁自审、三轴治理、Outbox 缓存失效、Gap 回归关闭验收 | 规格契约（前端已对齐） |
+| **健康探针** | `GET /healthz`、`GET /readyz` | 进程存活与 PG / Redis / MinIO / Qdrant 脱敏连通性探测 | **已上线** |
+| **身份认证** | `POST /auth/login`、`POST /auth/refresh`、`POST /auth/logout`、`GET /auth/me` | Argon2id 校验、内存 Access JWT、HttpOnly Refresh Rotation + 重放家族吊销、CSRF 双提交 | **已上线** |
+| **组织与部门** | `GET/POST /organizations`、`POST /organizations/{org_id}/switch`、`GET/POST/PATCH /organizations/{org_id}/members`、`GET/POST/PATCH /organizations/{org_id}/departments`、`GET/POST/DELETE .../memberships` | 组织切换、Closure Table 维护、防环子树移动、多部门有效期兼职 | **已上线** |
+| **角色权限** | `GET /permissions`、`GET/POST /organizations/{org_id}/roles`、`POST/DELETE /organizations/{org_id}/roles/{role_id}/assign*` | SystemRole 与 OrganizationRole 分离、`SYSTEM_ADMIN` 零业务读旁路 | **已上线** |
+| **知识空间** | `GET/POST/PATCH /organizations/{org_id}/spaces`、`GET/PATCH /spaces/{space_id}/members` | `PUBLIC`/`PRIVATE` 可见性、私有空间有效期内显式成员授权 | **已上线** |
+| **文档四维 ACL** | `GET /documents/{document_id}/acl`、`GET .../acl/revisions`、`POST .../acl/revisions` | 唯一写入口（ADR-001）：`expected_revision` 乐观锁 + `Idempotency-Key` + 快照展开 + Outbox | **已上线** |
+| **文档与版本** | `POST /spaces/{space_id}/documents/uploads`、`POST /documents/uploads/{upload_id}/complete`、`POST /spaces/{space_id}/documents/import-batches`、`GET /documents`、`GET /documents/{id}`、`GET .../versions`、`GET /document-versions/{id}/processing-status`、`POST .../reprocess`、`POST .../publish` | 直传与 MinIO 预签名 PUT、SHA-256 核验、默认 `QUARANTINED` 隔离、非空 ACL 发布解锁 | **已上线** |
+| **索引治理** | `POST /indexing/document-versions/{version_id}/process`、`GET /indexing/spaces/{space_id}/pointer`、`POST /indexing/spaces/{space_id}/rollback` | 触发解析切片入库、查询空间激活索引代次、`expected_revision` 乐观锁蓝绿回滚 | **已上线** |
+| **AI 问答与引用** | `POST/GET /chat/conversations`、`GET /chat/conversations/{id}`、`POST /chat/conversations/{id}/messages:stream`、`POST /chat/messages/{id}/cancel`、`POST /chat/messages/{id}/feedback`、`GET /citations/{citation_id}` | Fetch Streaming 7 类 SSE 事件、入 LLM 前二次 ACL 复核、段落级历史重鉴权与引用复核 | **已上线** |
+| **FAQ 挖掘与缓存** | `POST /faq-mining/runs`、`GET /faq-candidates`、`POST /faq-candidates/{id}/submit-review`、`POST /faq/{id}/reviews`、`POST /faq/{id}/publish`、`POST /faq/{id}/disable`、`GET/POST /faq`、`POST /faq/match` | HDBSCAN 批处理聚类、禁自审、三轴治理、多来源交集 ACL、Redis Fast Path 匹配 | **已上线** |
+| **Knowledge Gap** | `GET /knowledge-gaps`、`POST /knowledge-gaps/signals`、`PATCH /knowledge-gaps/{id}/status`、`POST /knowledge-gaps/{id}/tasks`、`PATCH /knowledge-gap-tasks/{id}` | 准入分类器（剔除 ACL 拒绝与故障）、11 态任务流转、Gap Regression Query 闭环验收 | **已上线** |
+| **运营/审计/配置** | `GET /analytics/overview`、`GET /analytics/faq`、`GET /analytics/knowledge-gaps`、`GET/POST /benchmarks`、`GET /audit/events`、`GET /audit/security-events`、`GET/PATCH /providers/config` | 组织隔离指标、ACL/RAG Benchmark、业务与安全双审计分离、API Key 尾号脱敏策略配置 | **已上线** |
 
 ---
 
@@ -515,12 +524,14 @@ npm test -- --run
 
 ### 7.2 测试金字塔（L0–L3）
 
-| 测试层级 | 覆盖范围 | 仓库内关键测试文件与门禁 |
+仓库共落地 **9 个后端 Pytest 测试套件（46 个测试集用例）** 与 **4 个前端 Vitest 测试套件（17 个测试集用例）**，覆盖 Phase 0 至 Slice 8 全链路真实集成验证与 L3 安全回归门禁：
+
+| 测试层级 | 覆盖范围 | 仓库内已落地测试文件与门禁 |
 |---|---|---|
-| **L0（单元与契约测试）** | Pydantic 契约、Token 估算、`StructureAwareChunker` 表格/公式保留、外发门禁矩阵、SSE 帧解析、UI 组件与内存 AuthStore | [`backend/tests/test_phase0_core.py`](backend/tests/test_phase0_core.py)、[`backend/tests/test_parsers_chunking_providers.py`](backend/tests/test_parsers_chunking_providers.py)、[`frontend/src/__tests__/`](frontend/src/__tests__/) |
-| **L1（真实组件集成测试）** | 真实 PostgreSQL 17 `app_runtime` FORCE RLS 隔离、部门闭包防环移动、Refresh Rotation 重放家族吊销、MinIO 上传核验与 Quarantine 发布、Qdrant Dense+Sparse 检索 | [`backend/tests/test_slice1_iam_rls.py`](backend/tests/test_slice1_iam_rls.py)、[`backend/tests/test_slice2_space_acl_docs.py`](backend/tests/test_slice2_space_acl_docs.py)、[`backend/tests/test_qdrant_hybrid_retrieval.py`](backend/tests/test_qdrant_hybrid_retrieval.py) |
-| **L2（端到端链路测试）** | 非敏感测试文档经 MinerU / 轻量解析 → Parent-Child 切片 → Qdrant 蓝绿索引 → 多 Space 混合检索 → OpenAI 兼容 LLM SSE 流式溯源 | CI / 本地 `full-demo` 端到端回归 |
-| **L3（安全对抗与灾备演练）** | 跨租户 IDOR、ACL 同步延迟窗口防越权、历史对话撤权重鉴权、Prompt Injection 隔离、20 并发压测与 `restore.ps1 -DrillOnly` 演练 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) `acl-security-regression` 阻断门禁 |
+| **L0（单元与契约测试）** | Pydantic 契约、UUID v7、脱敏日志、`StructureAwareChunker` 表格/公式保留、外发门禁矩阵、SSE 帧解析、UI 组件与内存 AuthStore | [`backend/tests/test_phase0_core.py`](backend/tests/test_phase0_core.py)、[`backend/tests/test_parsers_chunking_providers.py`](backend/tests/test_parsers_chunking_providers.py)、[`frontend/src/__tests__/phase0.test.tsx`](frontend/src/__tests__/phase0.test.tsx)、[`frontend/src/__tests__/slice1-iam.test.tsx`](frontend/src/__tests__/slice1-iam.test.tsx)、[`frontend/src/__tests__/slice2-space-acl-docs.test.tsx`](frontend/src/__tests__/slice2-space-acl-docs.test.tsx)、[`frontend/src/__tests__/slice4-8-workspaces.test.tsx`](frontend/src/__tests__/slice4-8-workspaces.test.tsx) |
+| **L1（真实组件集成测试）** | 真实 PG 17 `app_runtime` FORCE RLS 隔离、部门闭包防环移动、Refresh Rotation 重放家族吊销、MinIO 上传与 Quarantine 发布、Qdrant Dense+Sparse 检索与蓝绿指针回滚 | [`backend/tests/test_slice1_iam_rls.py`](backend/tests/test_slice1_iam_rls.py)、[`backend/tests/test_slice2_space_acl_docs.py`](backend/tests/test_slice2_space_acl_docs.py)、[`backend/tests/test_qdrant_hybrid_retrieval.py`](backend/tests/test_qdrant_hybrid_retrieval.py)、[`backend/tests/test_slice3_ingestion_pipeline.py`](backend/tests/test_slice3_ingestion_pipeline.py) |
+| **L2（端到端业务闭环测试）** | 场景 A 受 ACL 保护的多 Space RAG 流式问答/撤权与历史重鉴权；场景 B FAQ 脱敏挖掘（HDBSCAN）、禁自审、三轴治理、Redis 缓存失效与 Knowledge Gap 回归验收；运营分析/双审计/Benchmark | [`backend/tests/test_slice4_5_chat_rag_reauth.py`](backend/tests/test_slice4_5_chat_rag_reauth.py)、[`backend/tests/test_slice6_7_faq_gap.py`](backend/tests/test_slice6_7_faq_gap.py)、[`backend/tests/test_slice8_governance.py`](backend/tests/test_slice8_governance.py) |
+| **L3（安全对抗与灾备演练）** | 跨租户 IDOR、ACL 同步延迟窗口防越权、历史对话撤权重鉴权、Prompt Injection 隔离、20 并发压测、`localStorage` 静态扫描与 `restore.ps1 -DrillOnly` 演练 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) `acl-security-regression` 阻断门禁（独立安全对抗套件持续演进中） |
 
 ---
 

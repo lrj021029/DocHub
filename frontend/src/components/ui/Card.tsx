@@ -6,14 +6,15 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 /**
- * COSS UI 卡片容器：细边框、柔和层级投影、清晰的内边距分区。
+ * COSS UI × Notion 风格卡片容器：
+ * 去除厚重阴影，采用纯白背景、1px 极细暖灰边框（#E9E9E7）与柔和悬停过渡。
  */
 export function Card({ className, ref, ...props }: CardProps) {
   return (
     <div
       ref={ref}
       className={cn(
-        'rounded-xl border border-line bg-surface-elevated text-ink shadow-xs',
+        'rounded-lg border border-line bg-surface-elevated text-ink transition-colors duration-150',
         className,
       )}
       {...props}
@@ -25,7 +26,7 @@ export function Card({ className, ref, ...props }: CardProps) {
 export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('flex flex-col gap-1.5 border-b border-line/70 px-5 py-4', className)}
+      className={cn('flex flex-col gap-1 border-b border-line/80 px-5 py-3.5', className)}
       {...props}
     />
   );
@@ -58,7 +59,7 @@ export function CardFooter({ className, ...props }: HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={cn(
-        'flex items-center justify-between gap-2 border-t border-line/70 bg-surface-subtle/60 px-5 py-3 rounded-b-xl',
+        'flex items-center justify-between gap-2 rounded-b-lg border-t border-line/80 bg-surface-subtle px-5 py-3',
         className,
       )}
       {...props}

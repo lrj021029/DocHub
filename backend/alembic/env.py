@@ -20,11 +20,17 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.core.config import get_settings
 from app.db.base import Base
 
-# 显式注册 Slice 1 全部领域模型到 Base.metadata
+# 显式注册 Slice 1~3 全部领域模型到 Base.metadata
+from app.modules.acl import models as _acl_models  # noqa: F401
 from app.modules.audit import models as _audit_models  # noqa: F401
 from app.modules.departments import models as _department_models  # noqa: F401
+from app.modules.documents import models as _document_models  # noqa: F401
 from app.modules.identity import models as _identity_models  # noqa: F401
+from app.modules.indexing import models as _indexing_models  # noqa: F401
+from app.modules.jobs import models as _job_models  # noqa: F401
+from app.modules.knowledge_spaces import models as _space_models  # noqa: F401
 from app.modules.organizations import models as _organization_models  # noqa: F401
+from app.modules.outbox import models as _outbox_models  # noqa: F401
 from app.modules.roles import models as _role_models  # noqa: F401
 
 # Alembic Config 对象，对应 alembic.ini 配置

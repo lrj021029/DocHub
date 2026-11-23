@@ -140,6 +140,22 @@ async def _move_department_subtree_in_tx(
         if target_parent is None:
             raise NotFoundError(code="PARENT_DEPARTMENT_NOT_FOUND", message="目标上级部门不存在")
 
+    # 校验目标父节点下是否已存在同名部门，避免触发数据库唯一约束异常
+    dup_stmt = select(Department.id).where(
+        Department.organization_id == organization_id,
+        Department.id != dept.id,
+        Department.name == dept.name,
+        Department.parent_id.is_(None)
+        if new_parent_id is None
+        else Department.parent_id == new_parent_id,
+    )
+    if (await session.execute(dup_stmt)).scalar_one_or_none() is not None:
+        raise ConflictError(
+            code="DEPARTMENT_NAME_EXISTS",
+            message="目标上级部门下已存在同名部门",
+        )
+
+    if new_parent_id is not None:
         # 环路检测：若 new_parent_id 已是 dept 的后代节点，则移动会形成环路
         cycle_check = (
             await session.execute(

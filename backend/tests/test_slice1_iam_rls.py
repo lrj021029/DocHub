@@ -333,7 +333,7 @@ async def test_multi_org_switch_and_cross_org_idor_blocking() -> None:
         assert mismatch_resp.json()["code"] == "ORG_CONTEXT_MISMATCH"
 
         # 3. SystemAdmin 创建新组织并合法切换
-        unique_slug = f"gamma-{new_uuid7_str()[:8]}"
+        unique_slug = f"gamma-{uuid.uuid4().hex[:8]}"
         create_org_resp = await client.post(
             "/api/v1/organizations",
             headers={"Authorization": f"Bearer {admin_token}"},
@@ -503,7 +503,7 @@ async def test_department_closure_tree_move_cycle_detection_and_validity_windows
         fin_id = uuid.UUID(dept_map["财务部"]["id"])
 
         # 2. 在研发部下建立多级子树：研发部 -> 平台组 -> 存储小组
-        suffix = new_uuid7_str()[:6]
+        suffix = uuid.uuid4().hex[:8]
         plat_resp = await client.post(
             f"/api/v1/organizations/{acme_id}/departments",
             headers=admin_headers,

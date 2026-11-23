@@ -71,7 +71,7 @@
 - **面试官核心考察点**：纵深防御（Defense in Depth）意识，理解 ORM/业务代码人为疏漏风险。
 - **标准深度回答**：
   1. **应用层 `WHERE` 属于“自觉防御”，极易失效**：在大型迭代中，只要出现一个复杂 JOIN 漏加 `organization_id` 条件、一次原生 SQL 统计忘记过滤租户、或者 Celery Worker 消费任务时直接按 `document_id` 主键 `session.get(Document, doc_id)`，跨租户越权（IDOR）就会瞬间发生。
-  2. **PostgreSQL RLS 是数据库内核级的强制兜底**：在 [`backend/alembic/versions/0001_slice1_iam_rls.py`](../backend/alembic/versions/0001_slice1_iam_rls.py) 与 `0002_slice2_3_space_acl_docs_index.py` 中，全库全部 34 张租户表均开启了 `ENABLE ROW LEVEL SECURITY` 与 `FORCE ROW LEVEL SECURITY`，策略为：
+  2. **PostgreSQL RLS 是数据库内核级的强制兜底**：在 [`0001_slice1_iam_rls.py`](../backend/alembic/versions/0001_slice1_iam_rls.py)、[`0002_slice2_3_space_acl_docs_index.py`](../backend/alembic/versions/0002_slice2_3_space_acl_docs_index.py) 与 [`0003_slice4_8_chat_faq_gap_benchmark.py`](../backend/alembic/versions/0003_slice4_8_chat_faq_gap_benchmark.py) 中，全库全部 61 张业务租户表（占总 69 张表中的全部租户领域）均开启了 `ENABLE ROW LEVEL SECURITY` 与 `FORCE ROW LEVEL SECURITY`，策略为：
      ```sql
      USING (organization_id = NULLIF(current_setting('app.current_organization_id', true), '')::uuid)
      WITH CHECK (organization_id = NULLIF(current_setting('app.current_organization_id', true), '')::uuid)
@@ -140,7 +140,7 @@
 
 ---
 
-### Q9：为什么所有租户子表（如 `document_versions`、`acl_grants`、`acl_grant_department_snapshots`、`chunks`、`outbox_events` 等 34 张 RLS 表）都要强制冗余 `organization_id UUID NOT NULL`？主键为什么选应用层 UUID v7？
+### Q9：为什么所有租户子表（如 `document_versions`、`acl_grants`、`acl_grant_department_snapshots`、`chunks`、`outbox_events` 等 61 张 RLS 表）都要强制冗余 `organization_id UUID NOT NULL`？主键为什么选应用层 UUID v7？
 
 - **面试官核心考察点**：RLS 性能优化、避免递归策略死锁与分布式主键设计。
 - **标准深度回答**：
@@ -429,7 +429,7 @@
 
 - **面试官核心考察点**：历史数据撤权一致性的长尾安全难题（红线 #5）与生成期并发竞态控制。
 - **标准深度回答**：
-  1. **历史会话分段重鉴权模型**（见 [`TECHNICAL_SPEC.md`](../TECHNICAL_SPEC.md) §5.5 & §14.6）：
+  1. **历史会话分段重鉴权模型**（见 [`backend/app/modules/chat/service.py`](../backend/app/modules/chat/service.py) 与 [`TECHNICAL_SPEC.md`](../TECHNICAL_SPEC.md) §5.5 & §14.6）：
      - 传统问答库只存一整段 `messages.content` 纯文本，一旦员工转岗或文档撤权，打开历史记录就能直接看到“昔日缓存的高管薪酬回答”，直接违反安全红线 #5。
      - DocHub 将 AI 回答按结构化引用归属拆分为多条 `MessageSegment`（关联 `AnswerCitation`，记录引用来源的 `document_version_id`、`chunk_id`）。
      - 当用户调用 `GET /api/v1/chat/conversations/{id}` 或 `GET /api/v1/citations/{citation_id}` 时，服务端实时调用 `AuthoritativeACLEngine` 对所有关联 `document_id` / `chunk_id` 重跑当前 ACL：
@@ -486,8 +486,8 @@
 - **面试官核心考察点**：缓存与权威权限一致性（Cache Invalidation & Auth Bypass Prevention）、Transactional Outbox 模式与 Redis 降级策略。
 - **标准深度回答**：
   1. **纯 TTL 的越权窗口不可接受**：假设设置了 5 分钟 TTL，当一份文档的 ACL 刚刚被撤权或 FAQ 被管理员紧急停用（`DISABLED`），在剩余的 299 秒内用户依然会从 Redis Fast Path 拿到过期答案，直接触发安全红线 #3（FAQ 缓存绕过 ACL）。
-  2. **DocHub 三重缓存一致性架构**（见 [`TECHNICAL_SPEC.md`](../TECHNICAL_SPEC.md) §10.9 与 [`outbox/models.py`](../backend/app/modules/outbox/models.py)）：
-     - **多维版本号 Cache Key**：Key 组成包含 `organization_id : space_id : faq_id : faq_version : faq_acl_revision : source_version_hash : cache_generation`。任何维度版本号推进都会让旧 Key 在逻辑上瞬间“自然失活”，无需耗时执行全库 `KEYS/SCAN` 删除；
+  2. **DocHub 三重缓存一致性架构**（见 [`backend/app/modules/faq/cache.py`](../backend/app/modules/faq/cache.py) 与 [`outbox/models.py`](../backend/app/modules/outbox/models.py)）：
+     - **多维版本号 Cache Key**：`build_faq_cache_key` 构造 `dochub:faq:{org_id}:{space_id}:{faq_id}:v{ver}:acl{acl_rev}:src{src_hash}:g{cache_gen}`。任何维度版本号推进都会让旧 Key 在逻辑上瞬间“自然失活”，无需耗时执行全库 `KEYS/SCAN` 删除；**且 L2/L3 敏感来源关联的 FAQ 答案正文严禁写入 Redis，一律强制回源 PostgreSQL**；
      - **Transactional Outbox 事件驱动失效**：文档 ACL 变更（`acl.revision.created`）、文档版本发布、FAQ 停用或发布时，在同一个 PG 事务内写入 `outbox_events`；Celery `outbox` 队列每 15 秒轮询/实时中继，并结合 `processed_messages` 幂等去重表，精准递增 `FAQCacheIndex.cache_generation` 并删除对应 Redis Key；TTL（配合 Redis `volatile-lru`）仅作为防内存泄漏的兜底机制；
      - **命中后二次鉴权与 Fail-Closed 降级**：Redis 命中返回缓存答案后，**依然必须在请求时用当前用户上下文复核 `FAQACL` 与最新 `source revision`**（绝不把“能不能看”缓存进 Redis）；当 Redis 宕机或不可用时，系统自动回源 PostgreSQL 并重新鉴权，而若 PostgreSQL 权限服务不可用，直接 Fail-Closed 拒绝服务。
 - **可能的追问与高分加分点**：
@@ -500,11 +500,11 @@
 
 - **面试官核心考察点**：流批一体挖掘算法设计（HDBSCAN 特性）、数据隐私脱敏与可观测异常分类治理。
 - **标准深度回答**：
-  1. **流批结合的挖掘架构**（见 [`TECHNICAL_SPEC.md`](../TECHNICAL_SPEC.md) §10.1–10.3）：
+  1. **流批结合的挖掘架构**（见 [`backend/app/modules/faq/mining.py`](../backend/app/modules/faq/mining.py) 与 [`TECHNICAL_SPEC.md`](../TECHNICAL_SPEC.md) §10.1–10.3）：
      - **数据脱敏前置**：原始用户提问先剥离姓名/工号/手机号等 PII 后存入 `QuestionEvent`，且与原始 `Message` 分离存储，仅用于统计分析。
      - **实时流式增量匹配（Real-time）**：新提问进来后计算 Embedding，与现有活跃 `QuestionCluster` 质心做近似匹配（Approximate Assignment），用于快速累计频次、独立用户数与独立会话数（叠加 `anti_spam_limit` 防同一人刷量刷榜）；**注意：实时近似匹配绝不自动分裂或新建簇**。
      - **定时/手动批处理重聚类（Scheduled/Manual）**：由 Celery Beat 在低峰期（默认 `02:30`）触发 `faq` 队列运行 `sklearn.cluster.HDBSCAN`（选用 scikit-learn 内置预编译实现，完美规避 Windows 无 C++ Build Tools 无法编译独立 `hdbscan` 包的问题），完成长尾新簇发现、相似簇合并及噪音过滤，达标后生成 `FAQCandidate`。
-  2. **Knowledge Gap 事件严格分类**（`TECHNICAL_SPEC.md` §11.1）：
+  2. **Knowledge Gap 事件严格分类**（见 [`backend/app/modules/knowledge_gaps/service.py`](../backend/app/modules/knowledge_gaps/service.py) `ingest_gap_signal` 与 `TECHNICAL_SPEC.md` §11.1）：
      - **允许进入 Gap 池**：`NO_RETRIEVAL`（授权文档内全无召回）、`LOW_RELEVANCE`（重排相关性过低）、`INSUFFICIENT_AUTHORIZED_EVIDENCE`（有零星片段但不足以严格作答）；
      - **严禁进入 Gap 池**：
        - `ACL_DENIED` / `UNAUTHORIZED_ONLY_RESULTS` → **进 `SecurityAuditEvent`**！若进入普通知识管理员的 Gap 队列，会暴露“员工一直在搜高管裁员补偿方案但被系统拦截”，造成严重安全侧信道且误导管理员“去补充一份公开版裁员文档”；

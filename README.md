@@ -380,7 +380,7 @@ DocHub/
 | 领域 | 已上线 HTTP 方法与路径（`/api/v1/*`） | 核心职责与安全机制 | 状态 |
 |---|---|---|---|
 | **健康探针** | `GET /healthz`、`GET /readyz` | 进程存活与 PG / Redis / MinIO / Qdrant 脱敏连通性探测 | **已上线** |
-| **身份认证** | `POST /auth/login`、`POST /auth/refresh`、`POST /auth/logout`、`GET /auth/me` | Argon2id 校验、内存 Access JWT、HttpOnly Refresh Rotation + 重放家族吊销、CSRF 双提交 | **已上线** |
+| **身份认证与账号管理** | `POST /auth/login`、`POST /auth/register`、`POST /auth/change-password`、`POST /auth/refresh`、`POST /auth/logout`、`GET /auth/me`、`GET/POST /users`、`PATCH /users/{user_id}` | Argon2id 校验、自助注册（默认最小 `EMPLOYEE` 权限）、改密吊销其他会话、内存 Access JWT、HttpOnly Refresh Rotation + 重放家族吊销、CSRF 双提交与 `SYSTEM_ADMIN` 全平台账号治理 | **已上线** |
 | **组织与部门** | `GET/POST /organizations`、`POST /organizations/{org_id}/switch`、`GET/POST/PATCH /organizations/{org_id}/members`、`GET/POST/PATCH /organizations/{org_id}/departments`、`GET/POST/DELETE .../memberships` | 组织切换、Closure Table 维护、防环子树移动、多部门有效期兼职 | **已上线** |
 | **角色权限** | `GET /permissions`、`GET/POST /organizations/{org_id}/roles`、`POST/DELETE /organizations/{org_id}/roles/{role_id}/assign*` | SystemRole 与 OrganizationRole 分离、`SYSTEM_ADMIN` 零业务读旁路 | **已上线** |
 | **知识空间** | `GET/POST/PATCH /organizations/{org_id}/spaces`、`GET/PATCH /spaces/{space_id}/members` | `PUBLIC`/`PRIVATE` 可见性、私有空间有效期内显式成员授权 | **已上线** |
@@ -432,7 +432,31 @@ Copy-Item .env.example .env
 | **Prometheus / Loki / Tempo** | `19090` / `13100` / `13200` | `9090` / `3100` / `3200` | `observability`, `full-demo` | 仅本机回环访问 |
 | **OTel Collector** | `14317` / `14318` / `18889` / `13133` | `4317` / `4318` / `8889` / `13133` | `observability`, `full-demo` | OTLP gRPC / HTTP、Prom Metrics 与健康检查 |
 
-### 6.4 Docker Compose 分层启动命令
+### 6.4 一键启动与停止脚本（推荐）
+
+仓库根目录已提供 Windows 一键启动与停止脚本（支持双击 `.bat` 或在 PowerShell 执行 `.ps1`）：
+
+```powershell
+# 1. 一键启动（默认 dev 模式：拉起 Docker 核心底座 + Alembic 迁移 + 自动种子初始化 + FastAPI 8000 + Celery Worker + Vite 5173）
+.\start.ps1
+# 或直接双击仓库根目录下的 start.bat
+
+# 2. 首次启动并同步灌入全场景演示数据（文档、Qdrant 向量、FAQ、Knowledge Gap、审计日志）
+.\start.ps1 -SeedDemo
+
+# 3. 叠加可观测性栈（Prometheus / Grafana 13000 / Loki / Tempo / OTel）且不自动打开浏览器
+.\start.ps1 -WithObservability -NoBrowser
+
+# 4. 全栈 Docker 容器化一键启动（profile: full-demo）
+.\start.ps1 -Mode docker
+
+# 5. 一键停止本地应用进程（FastAPI / Celery / Vite）
+.\stop.ps1
+# 或同时停止 DocHub 的 Docker 容器（保留数据卷，绝不影响本机其他 Docker 项目）
+.\stop.ps1 -StopDocker
+```
+
+### 6.5 Docker Compose 分层手动启动命令
 
 ```powershell
 # 1. 仅启动核心数据底座（推荐本地开发 Backend/Frontend 时使用，仅占 ~2.5-3.5 GB 内存）

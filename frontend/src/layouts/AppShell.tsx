@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  KeyRound,
   LogIn,
   LogOut,
   Menu,
@@ -20,6 +21,15 @@ import {
   Alert,
   Badge,
   Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  Input,
   Select,
   SelectContent,
   SelectItem,
@@ -32,6 +42,7 @@ import {
   WORKSPACE_NAV_ITEMS,
   type NavGroupKey,
 } from '@/config/navigation';
+import { changeOwnPassword, formatIamError } from '@/features/iam/api';
 import { fetchBackendReadiness } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-store';
 import { cn } from '@/lib/cn';
@@ -80,6 +91,15 @@ export function AppShell() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [changePwdOpen, setChangePwdOpen] = useState(false);
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmNewPwd, setConfirmNewPwd] = useState('');
+  const [isChangingPwd, setIsChangingPwd] = useState(false);
+  const [pwdFeedback, setPwdFeedback] = useState<{
+    variant: 'success' | 'danger';
+    message: string;
+  } | null>(null);
 
   // 定时轮询后端 /api/v1/readyz 就绪探针，实时展示服务健康状态
   const readinessQuery = useQuery({
@@ -150,6 +170,41 @@ export function AppShell() {
       setSwitchError('切换组织请求异常，请稍后重试。');
     } finally {
       setIsSwitchingOrg(false);
+    }
+  };
+
+  /** 执行当前用户自助改密，同时吊销其他设备活跃会话 */
+  const handleChangeOwnPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdFeedback(null);
+    if (newPwd.length < 8 || !/[A-Za-z]/.test(newPwd) || !/[0-9]/.test(newPwd)) {
+      setPwdFeedback({
+        variant: 'danger',
+        message: '新密码至少 8 位，且必须同时包含英文字母和数字。',
+      });
+      return;
+    }
+    if (newPwd !== confirmNewPwd) {
+      setPwdFeedback({ variant: 'danger', message: '两次输入的新密码不一致。' });
+      return;
+    }
+    setIsChangingPwd(true);
+    try {
+      const res = await changeOwnPassword({
+        current_password: currentPwd,
+        new_password: newPwd,
+      });
+      setPwdFeedback({
+        variant: 'success',
+        message: `密码修改成功，已同步吊销 ${res.revoked_other_sessions} 个其他设备会话。`,
+      });
+      setCurrentPwd('');
+      setNewPwd('');
+      setConfirmNewPwd('');
+    } catch (err) {
+      setPwdFeedback({ variant: 'danger', message: formatIamError(err, '修改密码失败') });
+    } finally {
+      setIsChangingPwd(false);
     }
   };
 
@@ -395,16 +450,108 @@ export function AppShell() {
               </div>
               <UserCircle2 className="h-4 w-4 text-ink-secondary" aria-hidden="true" />
               {isAuthenticated ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  loading={isLoggingOut}
-                  onClick={() => void handleLogout()}
-                >
-                  <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
-                  退出
-                </Button>
+                <>
+                  <Dialog
+                    open={changePwdOpen}
+                    onOpenChange={(open) => {
+                      setChangePwdOpen(open);
+                      if (!open) {
+                        setPwdFeedback(null);
+                        setCurrentPwd('');
+                        setNewPwd('');
+                        setConfirmNewPwd('');
+                      }
+                    }}
+                  >
+                    <DialogTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          title="修改当前账号密码"
+                        >
+                          <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span className="hidden sm:inline">改密</span>
+                        </Button>
+                      }
+                    />
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>修改登录密码</DialogTitle>
+                        <DialogDescription>
+                          更新 {user?.email ?? '当前账号'} 的密码后，系统将自动吊销其他设备的活跃会话以保障账号安全。
+                        </DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={(ev) => void handleChangeOwnPassword(ev)} className="space-y-3.5">
+                        {pwdFeedback ? (
+                          <Alert
+                            variant={pwdFeedback.variant}
+                            title={pwdFeedback.variant === 'success' ? '修改成功' : '修改失败'}
+                          >
+                            {pwdFeedback.message}
+                          </Alert>
+                        ) : null}
+                        <div className="space-y-1">
+                          <label htmlFor="self-cur-pwd" className="block text-xs font-medium text-ink">
+                            当前密码
+                          </label>
+                          <Input
+                            id="self-cur-pwd"
+                            type="password"
+                            autoComplete="current-password"
+                            required
+                            value={currentPwd}
+                            onChange={(ev) => setCurrentPwd(ev.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label htmlFor="self-new-pwd" className="block text-xs font-medium text-ink">
+                            新密码
+                          </label>
+                          <Input
+                            id="self-new-pwd"
+                            type="password"
+                            autoComplete="new-password"
+                            placeholder="至少 8 位，需包含字母和数字"
+                            required
+                            value={newPwd}
+                            onChange={(ev) => setNewPwd(ev.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label htmlFor="self-confirm-pwd" className="block text-xs font-medium text-ink">
+                            确认新密码
+                          </label>
+                          <Input
+                            id="self-confirm-pwd"
+                            type="password"
+                            autoComplete="new-password"
+                            required
+                            value={confirmNewPwd}
+                            onChange={(ev) => setConfirmNewPwd(ev.target.value)}
+                          />
+                        </div>
+                        <DialogFooter>
+                          <DialogClose render={<Button variant="outline" type="button">关闭</Button>} />
+                          <Button type="submit" loading={isChangingPwd}>
+                            保存新密码
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    loading={isLoggingOut}
+                    onClick={() => void handleLogout()}
+                  >
+                    <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
+                    退出
+                  </Button>
+                </>
               ) : (
                 <Button
                   variant="outline"

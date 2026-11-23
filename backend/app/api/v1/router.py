@@ -17,6 +17,7 @@ from app.modules.departments.router import router as departments_router
 from app.modules.documents.router import router as documents_router
 from app.modules.faq.router import router as faq_router
 from app.modules.identity.router import router as auth_router
+from app.modules.identity.router import users_router as platform_users_router
 from app.modules.indexing.router import router as indexing_router
 from app.modules.knowledge_gaps.router import router as gaps_router
 from app.modules.knowledge_spaces.router import org_spaces_router, spaces_router
@@ -29,8 +30,9 @@ api_v1_router = APIRouter(prefix="/api/v1")
 # 基础设施探针路由
 api_v1_router.include_router(health_router)
 
-# Slice 1：身份认证、多组织、部门树与 RBAC 路由
+# Slice 1：身份认证、平台账号管理、多组织、部门树与 RBAC 路由
 api_v1_router.include_router(auth_router)
+api_v1_router.include_router(platform_users_router)
 api_v1_router.include_router(organizations_router)
 api_v1_router.include_router(departments_router)
 api_v1_router.include_router(permissions_router)

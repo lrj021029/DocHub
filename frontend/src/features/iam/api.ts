@@ -514,3 +514,138 @@ export async function assignOrgRole(
     { organizationId: orgId },
   );
 }
+
+/** 平台账号所属组织简要结构 */
+export interface PlatformUserOrgBrief {
+  id: string;
+  name: string;
+  slug: string;
+  memberStatus: string;
+}
+
+/** 平台级用户管理台账条目 */
+export interface PlatformUserItem {
+  id: string;
+  email: string;
+  displayName: string;
+  status: 'ACTIVE' | 'DISABLED' | 'LOCKED';
+  systemRoles: string[];
+  organizations: PlatformUserOrgBrief[];
+  createdAt: string;
+}
+
+/** 平台级用户分页响应 */
+export interface PlatformUserListResult {
+  items: PlatformUserItem[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+interface RawPlatformUserRecord {
+  id: string;
+  email: string;
+  display_name?: string;
+  displayName?: string;
+  status?: string;
+  system_roles?: string[];
+  systemRoles?: string[];
+  organizations?: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    member_status?: string;
+    memberStatus?: string;
+  }>;
+  created_at?: string;
+  createdAt?: string;
+}
+
+function normalizePlatformUser(raw: RawPlatformUserRecord): PlatformUserItem {
+  const upperStatus = (raw.status ?? 'ACTIVE').toUpperCase();
+  const status: PlatformUserItem['status'] =
+    upperStatus === 'DISABLED' || upperStatus === 'LOCKED' ? upperStatus : 'ACTIVE';
+  return {
+    id: raw.id,
+    email: raw.email,
+    displayName: raw.displayName ?? raw.display_name ?? raw.email,
+    status,
+    systemRoles: raw.systemRoles ?? raw.system_roles ?? [],
+    organizations: (raw.organizations ?? []).map((org) => ({
+      id: org.id,
+      name: org.name,
+      slug: org.slug,
+      memberStatus: org.memberStatus ?? org.member_status ?? 'ACTIVE',
+    })),
+    createdAt: raw.createdAt ?? raw.created_at ?? '',
+  };
+}
+
+/** 查询全平台用户台账（GET /api/v1/users，需 system:user:manage 权限） */
+export async function fetchPlatformUsers(params?: {
+  q?: string;
+  status?: string;
+  offset?: number;
+  limit?: number;
+}): Promise<PlatformUserListResult> {
+  const query = new URLSearchParams();
+  if (params?.q?.trim()) query.set('q', params.q.trim());
+  if (params?.status && params.status !== 'ALL') query.set('status', params.status);
+  if (params?.offset !== undefined) query.set('offset', String(params.offset));
+  if (params?.limit !== undefined) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  const payload = await apiClient.get<{
+    items?: RawPlatformUserRecord[];
+    total?: number;
+    offset?: number;
+    limit?: number;
+  }>(`/api/v1/users${qs ? `?${qs}` : ''}`);
+  const items = (payload.items ?? []).map(normalizePlatformUser);
+  return {
+    items,
+    total: payload.total ?? items.length,
+    offset: payload.offset ?? 0,
+    limit: payload.limit ?? 50,
+  };
+}
+
+/** 平台管理员新建账号（POST /api/v1/users，需 system:user:manage 权限） */
+export async function createPlatformUser(input: {
+  email: string;
+  display_name: string;
+  password: string;
+  grant_system_admin?: boolean;
+  organization_id?: string | null;
+  organization_role_code?: string | null;
+}): Promise<PlatformUserItem> {
+  const raw = await apiClient.post<RawPlatformUserRecord>('/api/v1/users', input);
+  return normalizePlatformUser(raw);
+}
+
+/** 平台管理员更新账号资料/状态/密码/系统角色（PATCH /api/v1/users/{user_id}） */
+export async function updatePlatformUser(
+  userId: string,
+  input: {
+    display_name?: string;
+    status?: 'ACTIVE' | 'DISABLED' | 'LOCKED';
+    new_password?: string;
+    grant_system_admin?: boolean;
+  },
+): Promise<PlatformUserItem> {
+  const raw = await apiClient.patch<RawPlatformUserRecord>(
+    `/api/v1/users/${encodeURIComponent(userId)}`,
+    input,
+  );
+  return normalizePlatformUser(raw);
+}
+
+/** 当前用户自助修改密码（POST /api/v1/auth/change-password） */
+export async function changeOwnPassword(input: {
+  current_password: string;
+  new_password: string;
+}): Promise<{ status: string; revoked_other_sessions: number }> {
+  return apiClient.post<{ status: string; revoked_other_sessions: number }>(
+    '/api/v1/auth/change-password',
+    input,
+  );
+}

@@ -1,4 +1,4 @@
-import { Building2, FolderTree, ShieldCheck, Users } from 'lucide-react';
+import { Building2, FolderTree, ShieldCheck, UserCog, Users } from 'lucide-react';
 import {
   Alert,
   Badge,
@@ -10,6 +10,7 @@ import {
 import { DepartmentsTab } from '@/features/iam/DepartmentsTab';
 import { MembersTab } from '@/features/iam/MembersTab';
 import { RolesPermissionsTab } from '@/features/iam/RolesPermissionsTab';
+import { UsersAdminTab } from '@/features/iam/UsersAdminTab';
 import { useAuth } from '@/lib/auth-store';
 
 /**
@@ -66,6 +67,10 @@ export function OrgAdminPage() {
               <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
               组织角色与权限树
             </TabsTrigger>
+            <TabsTrigger value="platform-users" className="gap-1.5">
+              <UserCog className="h-3.5 w-3.5" aria-hidden="true" />
+              平台账号管理
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="members">
@@ -79,13 +84,17 @@ export function OrgAdminPage() {
           <TabsContent value="roles">
             <RolesPermissionsTab orgId={currentOrgId} />
           </TabsContent>
+
+          <TabsContent value="platform-users">
+            <UsersAdminTab currentOrgId={currentOrgId} currentOrgName={activeOrg?.name ?? null} />
+          </TabsContent>
         </Tabs>
       )}
 
       <div className="flex items-center gap-2 text-[11px] text-ink-muted">
         <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
         <span>
-          后端 API：/api/v1/organizations/&#123;org_id&#125;/members · /departments · /roles · /api/v1/permissions
+          后端 API：/api/v1/users · /api/v1/organizations/&#123;org_id&#125;/members · /departments · /roles · /api/v1/permissions
         </span>
       </div>
     </div>

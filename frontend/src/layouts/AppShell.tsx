@@ -5,6 +5,8 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   LogIn,
   LogOut,
   Menu,
@@ -13,7 +15,7 @@ import {
   UserCircle2,
   X,
 } from 'lucide-react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Badge,
@@ -55,15 +57,15 @@ const GROUP_ORDER: NavGroupKey[] = [
 ];
 
 /**
- * DocHub 企业级主应用外壳（AppShell）。
- * 包含：
- * - 左侧分组导航侧边栏（覆盖 PRD 全部 14 个模块路由入口）
- * - 顶部当前 Organization 切换器（真实调用 POST /api/v1/organizations/{org_id}/switch 并刷新全部 Query 缓存）
- * - 后端 /api/v1/readyz 实时健康状态指示器
- * - 用户身份菜单（真实展示邮箱、SystemRole 与 OrganizationRole 徽章，登出调用 POST /api/v1/auth/logout）
+ * DocHub × Notion 风格企业级主应用外壳（AppShell）。
+ * 视觉特点：
+ * - 左侧极浅暖灰（#F7F7F5）侧边栏 + 可折叠式页面分组 + 柔和 #EFEFED 悬停态
+ * - 顶部极简面包屑与 Organization 工作区切换器 + 极细 1px 暖灰分割线（#E9E9E7）
+ * - 纯白主画布（#FFFFFF）+ 宽敞呼吸感留白 + /api/v1/readyz 实时健康状态胶囊
  */
 export function AppShell() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const {
     user,
@@ -77,6 +79,7 @@ export function AppShell() {
   const [isSwitchingOrg, setIsSwitchingOrg] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   // 定时轮询后端 /api/v1/readyz 就绪探针，实时展示服务健康状态
   const readinessQuery = useQuery({
@@ -89,6 +92,7 @@ export function AppShell() {
 
   const availableOrgs = organizations.length > 0 ? organizations : FALLBACK_ORGS;
   const activeOrgId = currentOrgId ?? availableOrgs[0]?.id ?? '';
+  const activeOrg = availableOrgs.find((o) => o.id === activeOrgId);
 
   const groupedNav = useMemo(() => {
     return GROUP_ORDER.map((groupKey) => ({
@@ -97,6 +101,15 @@ export function AppShell() {
       items: WORKSPACE_NAV_ITEMS.filter((item) => item.group === groupKey),
     }));
   }, []);
+
+  /** 计算顶部面包屑当前页面标题 */
+  const currentNavItem = useMemo(() => {
+    return (
+      WORKSPACE_NAV_ITEMS.find((item) =>
+        item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path),
+      ) ?? WORKSPACE_NAV_ITEMS[0]
+    );
+  }, [location.pathname]);
 
   const readinessState = readinessQuery.data?.status ?? 'unavailable';
   const readinessBadge = useMemo(() => {
@@ -114,6 +127,11 @@ export function AppShell() {
 
   const ReadinessIcon = readinessBadge.icon;
 
+  /** 切换左侧分组折叠状态 */
+  const toggleGroup = (groupKey: NavGroupKey) => {
+    setCollapsedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  };
+
   /** 执行真实的组织切换：调用 /organizations/{org_id}/switch 并失效全部 TanStack Query 缓存 */
   const handleOrganizationChange = async (nextOrgId: string) => {
     if (!nextOrgId || nextOrgId === activeOrgId || nextOrgId === 'org-unassigned') {
@@ -127,7 +145,6 @@ export function AppShell() {
         setSwitchError('切换组织失败：您可能不再是目标组织的有效成员，或会话已失效。');
         return;
       }
-      // 组织上下文变更后立即刷新所有业务缓存，杜绝跨租户缓存串读
       await queryClient.invalidateQueries();
     } catch {
       setSwitchError('切换组织请求异常，请稍后重试。');
@@ -148,22 +165,22 @@ export function AppShell() {
     }
   };
 
-  /** 侧边栏导航内容（桌面端常驻 + 移动端抽屉复用） */
+  /** Notion 风格极浅暖灰侧边栏（#F7F7F5） */
   const renderSidebarNav = () => (
-    <div className="flex h-full flex-col">
-      {/* 品牌标识 */}
-      <div className="flex h-14 items-center justify-between border-b border-line px-4">
+    <div className="flex h-full flex-col bg-surface-sidebar">
+      {/* 品牌与工作区头 */}
+      <div className="flex h-12 items-center justify-between border-b border-line px-3.5">
         <Link
           to="/"
-          className="flex items-center gap-2.5 rounded-md text-ink focus-visible:outline-2 focus-visible:outline-ring"
+          className="flex items-center gap-2 rounded-md px-1 py-0.5 text-ink transition-colors hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-ring"
         >
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-ink-inverted shadow-xs">
-            <Shield className="h-4 w-4" aria-hidden="true" />
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-ink-inverted">
+            <Shield className="h-3.5 w-3.5" aria-hidden="true" />
           </div>
-          <div className="leading-tight">
-            <span className="block text-sm font-semibold tracking-tight">DocHub</span>
-            <span className="block text-[10px] font-medium text-ink-muted">
-              Enterprise Knowledge OS
+          <div className="leading-none">
+            <span className="text-[13px] font-semibold tracking-tight">DocHub</span>
+            <span className="ml-1.5 rounded bg-surface-muted px-1 py-0.5 text-[10px] font-medium text-ink-muted">
+              Workspace
             </span>
           </div>
         </Link>
@@ -177,61 +194,77 @@ export function AppShell() {
         </button>
       </div>
 
-      {/* 分组导航列表 */}
+      {/* Notion 式可折叠分组导航 */}
       <nav
         aria-label="DocHub 主导航"
-        className="flex-1 space-y-5 overflow-y-auto px-3 py-4"
+        className="flex-1 space-y-4 overflow-y-auto px-2.5 py-3.5"
       >
-        {groupedNav.map((group) => (
-          <div key={group.key} className="space-y-1">
-            <p className="px-2.5 text-[11px] font-semibold tracking-wide text-ink-muted uppercase">
-              {group.label}
-            </p>
-            <ul className="space-y-0.5">
-              {group.items.map((item) => {
-                const IconComp = item.icon;
-                return (
-                  <li key={item.id}>
-                    <NavLink
-                      to={item.path}
-                      end={item.path === '/'}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={({ isActive }) =>
-                        cn(
-                          'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors',
-                          'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
-                          isActive
-                            ? 'bg-accent text-ink-inverted shadow-xs'
-                            : 'text-ink-secondary hover:bg-surface-muted hover:text-ink',
-                        )
-                      }
-                    >
-                      <IconComp className="h-4 w-4 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{item.label}</span>
-                    </NavLink>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+        {groupedNav.map((group) => {
+          const isCollapsed = Boolean(collapsedGroups[group.key]);
+          return (
+            <div key={group.key} className="space-y-0.5">
+              <button
+                type="button"
+                aria-expanded={!isCollapsed}
+                onClick={() => toggleGroup(group.key)}
+                className="flex w-full items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
+                )}
+                <span className="truncate">{group.label}</span>
+              </button>
+
+              {!isCollapsed ? (
+                <ul className="space-y-0.5 pt-0.5">
+                  {group.items.map((item) => {
+                    const IconComp = item.icon;
+                    return (
+                      <li key={item.id}>
+                        <NavLink
+                          to={item.path}
+                          end={item.path === '/'}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={({ isActive }) =>
+                            cn(
+                              'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors',
+                              'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
+                              isActive
+                                ? 'bg-surface-muted font-semibold text-ink'
+                                : 'font-normal text-ink-secondary hover:bg-surface-muted hover:text-ink',
+                            )
+                          }
+                        >
+                          <IconComp className="h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />
+                          <span className="truncate">{item.label}</span>
+                        </NavLink>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </div>
+          );
+        })}
       </nav>
 
       {/* 底部会话入口（涵盖 PRD 模块 1：登录与会话） */}
-      <div className="border-t border-line p-3">
+      <div className="border-t border-line p-2.5">
         <NavLink
           to={LOGIN_NAV_ITEM.path}
           onClick={() => setMobileMenuOpen(false)}
           className={({ isActive }) =>
             cn(
-              'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors',
+              'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors',
               isActive
-                ? 'bg-accent text-ink-inverted'
+                ? 'bg-surface-muted font-semibold text-ink'
                 : 'text-ink-secondary hover:bg-surface-muted hover:text-ink',
             )
           }
         >
-          <LogIn className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <LogIn className="h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />
           <span>{LOGIN_NAV_ITEM.label}</span>
         </NavLink>
       </div>
@@ -240,8 +273,8 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen bg-surface text-ink">
-      {/* 桌面端左侧企业级固定侧边栏 */}
-      <aside className="hidden w-64 shrink-0 border-r border-line bg-surface-elevated lg:block">
+      {/* 桌面端 Notion 风格极浅暖灰侧边栏 */}
+      <aside className="hidden w-60 shrink-0 border-r border-line bg-surface-sidebar lg:block">
         <div className="sticky top-0 h-screen">{renderSidebarNav()}</div>
       </aside>
 
@@ -249,33 +282,32 @@ export function AppShell() {
       {mobileMenuOpen ? (
         <div className="fixed inset-0 z-50 flex lg:hidden">
           <div
-            className="fixed inset-0 bg-ink/35 backdrop-blur-[1px]"
+            className="fixed inset-0 bg-ink/25 backdrop-blur-[1px]"
             onClick={() => setMobileMenuOpen(false)}
           />
-          <aside className="relative z-10 w-68 max-w-[82vw] border-r border-line bg-surface-elevated shadow-md">
+          <aside className="relative z-10 w-64 max-w-[82vw] border-r border-line bg-surface-sidebar shadow-md">
             {renderSidebarNav()}
           </aside>
         </div>
       ) : null}
 
-      {/* 右侧主区域（顶栏 + 路由内容） */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-line bg-surface-elevated/95 px-4 backdrop-blur-xs lg:px-6">
-          {/* 左侧：移动端菜单按钮 + 当前 Organization 切换器 */}
-          <div className="flex min-w-0 items-center gap-3">
+      {/* 右侧纯白主画布 */}
+      <div className="flex min-w-0 flex-1 flex-col bg-surface">
+        <header className="sticky top-0 z-30 flex h-12 items-center justify-between gap-3 border-b border-line bg-surface/95 px-4 backdrop-blur-xs lg:px-8">
+          {/* 左侧：移动端菜单按钮 + Organization 工作区切换器 + 面包屑 */}
+          <div className="flex min-w-0 items-center gap-2.5">
             <button
               type="button"
               aria-label="打开导航菜单"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line text-ink-secondary hover:bg-surface-muted lg:hidden"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ink-secondary hover:bg-surface-muted lg:hidden"
               onClick={() => setMobileMenuOpen(true)}
             >
               <Menu className="h-4 w-4" aria-hidden="true" />
             </button>
 
-            <div className="flex items-center gap-2">
-              <Building2 className="hidden h-4 w-4 text-ink-muted sm:block" aria-hidden="true" />
-              <span className="hidden text-xs font-medium text-ink-muted md:inline">当前组织</span>
-              <div className="w-48 sm:w-56">
+            <div className="flex items-center gap-1.5">
+              <Building2 className="hidden h-3.5 w-3.5 text-ink-muted sm:block" aria-hidden="true" />
+              <div className="w-44 sm:w-52">
                 <Select
                   value={activeOrgId}
                   disabled={isSwitchingOrg || organizations.length === 0}
@@ -285,7 +317,10 @@ export function AppShell() {
                     }
                   }}
                 >
-                  <SelectTrigger aria-label="切换当前 Organization" className="h-8 text-xs">
+                  <SelectTrigger
+                    aria-label="切换当前 Organization"
+                    className="h-7 border-transparent bg-transparent px-2 text-xs font-medium shadow-none hover:border-line hover:bg-surface-muted"
+                  >
                     <SelectValue placeholder="选择当前 Organization" />
                   </SelectTrigger>
                   <SelectContent>
@@ -298,16 +333,25 @@ export function AppShell() {
                 </Select>
               </div>
             </div>
+
+            {currentNavItem ? (
+              <div className="hidden items-center gap-1.5 text-xs text-ink-muted xl:flex">
+                <span>/</span>
+                <span className="truncate font-medium text-ink">
+                  {activeOrg?.slug ? `${currentNavItem.label}` : currentNavItem.label}
+                </span>
+              </div>
+            ) : null}
           </div>
 
-          {/* 右侧：/api/v1/readyz 实时健康状态指示器 + 用户菜单与角色徽章 */}
-          <div className="flex items-center gap-2.5">
+          {/* 右侧：/api/v1/readyz 实时健康状态胶囊 + 用户菜单与角色徽章 */}
+          <div className="flex items-center gap-2">
             <div
-              className="flex items-center gap-1.5"
+              className="flex items-center gap-1"
               title="后端就绪探针 GET /api/v1/readyz"
               data-testid="backend-readiness-indicator"
             >
-              <Badge variant={readinessBadge.variant} className="gap-1.5 py-1">
+              <Badge variant={readinessBadge.variant} className="gap-1.5 py-0.5">
                 <ReadinessIcon className="h-3 w-3" aria-hidden="true" />
                 <span>{readinessBadge.label}</span>
               </Badge>
@@ -325,12 +369,12 @@ export function AppShell() {
               </Button>
             </div>
 
-            <div className="h-4 w-px bg-line" aria-hidden="true" />
+            <div className="h-3.5 w-px bg-line" aria-hidden="true" />
 
             {/* 用户身份与角色菜单区 */}
             <div className="flex items-center gap-2" data-testid="user-menu">
               <div className="hidden text-right md:block">
-                <div className="flex items-center justify-end gap-1.5">
+                <div className="flex items-center justify-end gap-1">
                   <p className="text-xs font-medium leading-tight text-ink">
                     {user?.email ?? '未登录访客'}
                   </p>
@@ -349,11 +393,12 @@ export function AppShell() {
                   {user?.displayName ?? '内存会话未激活'}
                 </p>
               </div>
-              <UserCircle2 className="h-5 w-5 text-ink-secondary" aria-hidden="true" />
+              <UserCircle2 className="h-4 w-4 text-ink-secondary" aria-hidden="true" />
               {isAuthenticated ? (
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
+                  className="h-7 px-2 text-xs"
                   loading={isLoggingOut}
                   onClick={() => void handleLogout()}
                 >
@@ -361,7 +406,12 @@ export function AppShell() {
                   退出
                 </Button>
               ) : (
-                <Button variant="outline" size="sm" onClick={() => navigate('/login')}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => navigate('/login')}
+                >
                   登录
                 </Button>
               )}
@@ -371,15 +421,15 @@ export function AppShell() {
 
         {/* 组织切换失败提示横幅 */}
         {switchError ? (
-          <div className="mx-auto w-full max-w-7xl px-4 pt-4 lg:px-8">
+          <div className="mx-auto w-full max-w-6xl px-4 pt-4 lg:px-10">
             <Alert variant="danger" title="组织切换受阻">
               {switchError}
             </Alert>
           </div>
         ) : null}
 
-        {/* 主内容视图区 */}
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 lg:px-8">
+        {/* 主内容视图区（Notion 宽敞阅读与操作留白） */}
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 lg:px-10">
           <Outlet />
         </main>
       </div>

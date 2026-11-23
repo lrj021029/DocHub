@@ -2,7 +2,7 @@ import { type HTMLAttributes, type ReactNode } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
-/** 提示条语义类型 */
+/** Callout 提示条语义类型 */
 export type AlertVariant = 'info' | 'success' | 'warning' | 'danger';
 
 export interface AlertProps extends HTMLAttributes<HTMLDivElement> {
@@ -14,10 +14,17 @@ export interface AlertProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 const ALERT_STYLES: Record<AlertVariant, string> = {
-  info: 'border-info-line bg-info-bg/80 text-info',
-  success: 'border-success-line bg-success-bg/80 text-success',
-  warning: 'border-warning-line bg-warning-bg/80 text-warning',
-  danger: 'border-danger-line bg-danger-bg/80 text-danger',
+  info: 'border-info-line/80 bg-info-bg/75 text-ink',
+  success: 'border-success-line/80 bg-success-bg/75 text-ink',
+  warning: 'border-warning-line/90 bg-warning-bg/85 text-ink',
+  danger: 'border-danger-line/90 bg-danger-bg/80 text-ink',
+};
+
+const ICON_COLORS: Record<AlertVariant, string> = {
+  info: 'text-info',
+  success: 'text-success',
+  warning: 'text-warning',
+  danger: 'text-danger',
 };
 
 const DEFAULT_ICONS: Record<AlertVariant, typeof Info> = {
@@ -28,8 +35,8 @@ const DEFAULT_ICONS: Record<AlertVariant, typeof Info> = {
 };
 
 /**
- * COSS UI 语义提示组件。
- * 用于展示权限受限说明、L2/L3 外发拦截警示、请求错误恢复提示与操作确认。
+ * COSS UI × Notion Callout 风格语义提示块。
+ * 柔和底色配合高可读深墨文字与左侧语义图标，适合呈现 Quarantine、L2/L3 外发拦截与 ACL 说明。
  */
 export function Alert({
   variant = 'info',
@@ -51,12 +58,14 @@ export function Alert({
       )}
       {...props}
     >
-      <span className="mt-0.5 shrink-0" aria-hidden="true">
+      <span className={cn('mt-0.5 shrink-0', ICON_COLORS[variant])} aria-hidden="true">
         {icon ?? <IconComp className="h-4 w-4" />}
       </span>
-      <div className="min-w-0 flex-1 space-y-1">
-        {title ? <p className="font-semibold leading-5">{title}</p> : null}
-        {children ? <div className="text-xs leading-5 opacity-95">{children}</div> : null}
+      <div className="min-w-0 flex-1 space-y-0.5">
+        {title ? <p className="text-[13px] font-semibold leading-5 text-ink">{title}</p> : null}
+        {children ? (
+          <div className="text-xs leading-5 text-ink-secondary">{children}</div>
+        ) : null}
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ from app.db.session import (
     get_db_session,
     org_rls_session,
     runtime_engine,
+    user_rls_session,
 )
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "get_db_session",
     "org_rls_session",
     "runtime_engine",
+    "user_rls_session",
 ]

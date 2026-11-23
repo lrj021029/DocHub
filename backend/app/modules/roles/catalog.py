@@ -142,6 +142,7 @@ DEFAULT_ORGANIZATION_ROLE_SPECS: tuple[RoleSpec, ...] = (
             "faq:manage",
             "gap:manage",
             "analytics:read",
+            "audit:read",
         ),
     ),
     RoleSpec(

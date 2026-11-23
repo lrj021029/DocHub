@@ -215,6 +215,14 @@ export async function cancelChatMessage(orgId: string, messageId: string): Promi
   );
 }
 
+/** 删除当前用户的指定历史会话（DELETE /api/v1/chat/conversations/{id}，软删除保留审计证据） */
+export async function deleteConversation(orgId: string, conversationId: string): Promise<void> {
+  await apiClient.delete<unknown>(
+    `/api/v1/chat/conversations/${encodeURIComponent(conversationId)}`,
+    { organizationId: orgId },
+  );
+}
+
 /** 提交回答有用/无用反馈（POST /api/v1/chat/messages/{id}/feedback） */
 export async function submitChatFeedback(
   orgId: string,

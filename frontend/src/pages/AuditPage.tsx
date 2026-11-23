@@ -30,21 +30,24 @@ import { useAuth } from '@/lib/auth-store';
  * 严格分离 GET /api/v1/audit/events 与 GET /api/v1/audit/security-events，采用 Cursor 分页。
  */
 export function AuditPage() {
-  const { currentOrgId } = useAuth();
+  const { currentOrgId, hasPermission } = useAuth();
   const [activeTab, setActiveTab] = useState<'business' | 'security'>('business');
   const [businessCursor, setBusinessCursor] = useState<string | null>(null);
   const [securityCursor, setSecurityCursor] = useState<string | null>(null);
 
+  const canReadBusinessAudit = hasPermission('audit:read');
+  const canReadSecurityAudit = hasPermission('security_audit:read');
+
   const businessQuery = useQuery({
     queryKey: ['audit', currentOrgId, 'business', businessCursor],
     queryFn: () => fetchAuditEvents(currentOrgId!, 'business', businessCursor),
-    enabled: Boolean(currentOrgId && activeTab === 'business'),
+    enabled: Boolean(currentOrgId && activeTab === 'business' && canReadBusinessAudit),
   });
 
   const securityQuery = useQuery({
     queryKey: ['audit', currentOrgId, 'security', securityCursor],
     queryFn: () => fetchAuditEvents(currentOrgId!, 'security', securityCursor),
-    enabled: Boolean(currentOrgId && activeTab === 'security'),
+    enabled: Boolean(currentOrgId && activeTab === 'security' && canReadSecurityAudit),
   });
 
   const renderTable = (
@@ -184,11 +187,17 @@ export function AuditPage() {
               <CardDescription>GET /api/v1/audit/events</CardDescription>
             </CardHeader>
             <CardContent>
-              {renderTable(
-                'business',
-                businessQuery,
-                (c) => setBusinessCursor(c),
-                () => setBusinessCursor(null),
+              {!canReadBusinessAudit ? (
+                <Alert variant="warning" title="当前角色无权查看业务审计日志">
+                  业务操作审计（audit:read）仅对知识库管理员、系统管理员与安全审计员开放；后端接口同样强制校验该权限。
+                </Alert>
+              ) : (
+                renderTable(
+                  'business',
+                  businessQuery,
+                  (c) => setBusinessCursor(c),
+                  () => setBusinessCursor(null),
+                )
               )}
             </CardContent>
           </Card>
@@ -206,11 +215,17 @@ export function AuditPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {renderTable(
-                'security',
-                securityQuery,
-                (c) => setSecurityCursor(c),
-                () => setSecurityCursor(null),
+              {!canReadSecurityAudit ? (
+                <Alert variant="warning" title="高敏安全审计仅对安全审计员开放">
+                  依据职责分离安全红线，安全审计事件（security_audit:read）仅授权给安全审计员（如 auditor@acme.local），普通管理员不可查阅，后端同样强制拦截。
+                </Alert>
+              ) : (
+                renderTable(
+                  'security',
+                  securityQuery,
+                  (c) => setSecurityCursor(c),
+                  () => setSecurityCursor(null),
+                )
               )}
             </CardContent>
           </Card>

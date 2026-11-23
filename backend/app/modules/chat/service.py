@@ -31,7 +31,7 @@ from app.core.ids import new_uuid7
 from app.core.pagination import decode_cursor, encode_cursor
 from app.db.session import org_rls_session
 from app.modules.acl.engine import AuthoritativeACLEngine
-from app.modules.audit.service import record_security_audit_event
+from app.modules.audit.service import record_audit_event, record_security_audit_event
 from app.modules.chat.models import (
     Conversation,
     ConversationSpace,
@@ -261,6 +261,7 @@ async def list_conversations(
         stmt = select(Conversation).where(
             Conversation.organization_id == org_ctx.organization_id,
             Conversation.user_id == org_ctx.principal.user_id,
+            Conversation.status != "DELETED",
         )
         if cursor_cond is not None:
             stmt = stmt.where(cursor_cond)
@@ -313,6 +314,39 @@ async def list_conversations(
     return ConversationCursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
 
 
+async def delete_conversation(
+    *,
+    org_ctx: OrgContext,
+    conversation_id: uuid.UUID,
+    session: AsyncSession,
+) -> None:
+    """软删除当前用户在当前组织的会话（保留底层不可变审计与引用证据）。"""
+    async with org_rls_session(session, org_ctx.organization_id, user_id=org_ctx.principal.user_id):
+        conv = (
+            await session.execute(
+                select(Conversation).where(
+                    Conversation.id == conversation_id,
+                    Conversation.organization_id == org_ctx.organization_id,
+                    Conversation.user_id == org_ctx.principal.user_id,
+                    Conversation.status != "DELETED",
+                )
+            )
+        ).scalar_one_or_none()
+        if conv is None:
+            raise NotFoundError(code="CONVERSATION_NOT_FOUND", message="目标会话不存在或无权删除")
+
+        conv.status = "DELETED"
+        record_audit_event(
+            session,
+            organization_id=org_ctx.organization_id,
+            actor_user_id=org_ctx.principal.user_id,
+            action="chat.conversation.deleted",
+            resource_type="conversation",
+            resource_id=conv.id,
+            details={"title": conv.title},
+        )
+
+
 async def get_conversation_detail(
     *,
     org_ctx: OrgContext,
@@ -334,6 +368,7 @@ async def get_conversation_detail(
                     Conversation.id == conversation_id,
                     Conversation.organization_id == org_ctx.organization_id,
                     Conversation.user_id == org_ctx.principal.user_id,
+                    Conversation.status != "DELETED",
                 )
             )
         ).scalar_one_or_none()
@@ -730,6 +765,7 @@ async def stream_rag_chat_events(
                     Conversation.id == conversation_id,
                     Conversation.organization_id == org_ctx.organization_id,
                     Conversation.user_id == org_ctx.principal.user_id,
+                    Conversation.status != "DELETED",
                 )
             )
         ).scalar_one_or_none()

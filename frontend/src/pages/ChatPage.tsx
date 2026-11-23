@@ -10,6 +10,7 @@ import {
   Square,
   ThumbsDown,
   ThumbsUp,
+  Trash2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -28,6 +29,7 @@ import {
 import {
   cancelChatMessage,
   createConversation,
+  deleteConversation,
   fetchCitationDetail,
   fetchConversationDetail,
   fetchConversations,
@@ -60,6 +62,7 @@ export function ChatPage() {
   const [streaming, setStreaming] = useState(false);
   const [streamStage, setStreamStage] = useState('就绪');
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [liveMessageId, setLiveMessageId] = useState<string | null>(null);
   const [liveAnswerText, setLiveAnswerText] = useState('');
   const [liveCitations, setLiveCitations] = useState<CitationData[]>([]);
   const [liveUserQuestion, setLiveUserQuestion] = useState<string | null>(null);
@@ -101,7 +104,38 @@ export function ChatPage() {
     return spaces[0] ? [spaces[0].id] : [];
   }, [detailQuery.data?.spaceIds, selectedSpaceIds, spaces]);
 
+  const persistedMessages = detailQuery.data?.messages ?? [];
+  // 当后端持久化详情已包含本轮流式消息 ID（或相同问答内容）时，自动交接并隐藏本地流式预览，杜绝重复渲染一轮 QA
+  const isLiveTurnPersisted = useMemo(() => {
+    if (streaming || !liveUserQuestion) return false;
+    if (liveMessageId && persistedMessages.some((m) => m.id === liveMessageId)) {
+      return true;
+    }
+    if (persistedMessages.length >= 2) {
+      const lastMsg = persistedMessages[persistedMessages.length - 1];
+      const prevMsg = persistedMessages[persistedMessages.length - 2];
+      if (
+        prevMsg?.role === 'user' &&
+        prevMsg.content.trim() === liveUserQuestion.trim() &&
+        lastMsg?.role === 'assistant'
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, [liveMessageId, liveUserQuestion, persistedMessages, streaming]);
+
   useEffect(() => {
+    if (isLiveTurnPersisted) {
+      setLiveMessageId(null);
+      setLiveAnswerText('');
+      setLiveCitations([]);
+      setLiveUserQuestion(null);
+    }
+  }, [isLiveTurnPersisted]);
+
+  useEffect(() => {
+    setLiveMessageId(null);
     setLiveAnswerText('');
     setLiveCitations([]);
     setLiveUserQuestion(null);
@@ -120,6 +154,26 @@ export function ChatPage() {
     },
     onError: (err) => {
       setStreamError(formatChatError(err, '创建新会话失败'));
+    },
+  });
+
+  const deleteConvMutation = useMutation({
+    mutationFn: (conversationId: string) => deleteConversation(currentOrgId!, conversationId),
+    onSuccess: (_data, deletedId) => {
+      if (currentConvId === deletedId) {
+        setActiveConversationId(null);
+        setLiveMessageId(null);
+        setLiveAnswerText('');
+        setLiveCitations([]);
+        setLiveUserQuestion(null);
+      }
+      queryClient.removeQueries({
+        queryKey: ['chat', currentOrgId, 'conversation', deletedId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['chat', currentOrgId, 'conversations'] });
+    },
+    onError: (err) => {
+      setStreamError(formatChatError(err, '删除会话失败'));
     },
   });
 
@@ -167,6 +221,7 @@ export function ChatPage() {
 
     setStreaming(true);
     setStreamError(null);
+    setLiveMessageId(null);
     setLiveUserQuestion(trimmed);
     setLiveAnswerText('');
     setLiveCitations([]);
@@ -201,6 +256,7 @@ export function ChatPage() {
           switch (evt.event) {
             case 'message_start':
               setStreamingMessageId(evt.data.message_id);
+              setLiveMessageId(evt.data.message_id);
               setStreamStage('已建立消息，准备检索');
               break;
             case 'retrieval_started':
@@ -313,7 +369,7 @@ export function ChatPage() {
               >
                 <BookOpen className="h-3.5 w-3.5 text-info" aria-hidden="true" />
                 <span className="max-w-44 truncate font-medium">{cit.document_title}</span>
-                {cit.page !== undefined ? (
+                {typeof cit.page === 'number' ? (
                   <span className="text-[11px] text-ink-muted">P.{cit.page}</span>
                 ) : null}
               </button>
@@ -441,18 +497,31 @@ export function ChatPage() {
                 ) : (
                   <ul className="space-y-1">
                     {conversations.map((conv) => (
-                      <li key={conv.id}>
+                      <li key={conv.id} className="group flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => setActiveConversationId(conv.id)}
                           className={cn(
-                            'w-full truncate rounded-md px-2.5 py-1.5 text-left text-xs transition-colors',
+                            'min-w-0 flex-1 truncate rounded-md px-2.5 py-1.5 text-left text-xs transition-colors',
                             conv.id === currentConvId
                               ? 'bg-surface-muted font-semibold text-ink'
                               : 'text-ink-secondary hover:bg-surface-muted hover:text-ink',
                           )}
                         >
                           {conv.title}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`删除会话 ${conv.title}`}
+                          title="删除该会话"
+                          disabled={deleteConvMutation.isPending}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteConvMutation.mutate(conv.id);
+                          }}
+                          className="shrink-0 rounded-md p-1 text-ink-muted opacity-0 transition-opacity hover:bg-danger-subtle hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       </li>
                     ))}
@@ -494,8 +563,8 @@ export function ChatPage() {
                   (detailQuery.data?.messages ?? []).map(renderHistoryMessage)
                 )}
 
-                {/* 本轮实时流式预览 */}
-                {liveUserQuestion ? (
+                {/* 本轮实时流式预览（仅在后端持久化列表尚未包含本轮消息时展示，杜绝重复 QA） */}
+                {!isLiveTurnPersisted && liveUserQuestion ? (
                   <div className="flex justify-end">
                     <div className="max-w-[82%] rounded-xl bg-accent px-4 py-2.5 text-sm text-ink-inverted">
                       {liveUserQuestion}
@@ -503,7 +572,7 @@ export function ChatPage() {
                   </div>
                 ) : null}
 
-                {(streaming || liveAnswerText || liveCitations.length > 0) ? (
+                {!isLiveTurnPersisted && (streaming || liveAnswerText || liveCitations.length > 0) ? (
                   <div
                     className="space-y-3 rounded-xl border border-line bg-surface-subtle p-4"
                     data-testid="live-sse-answer"
@@ -527,7 +596,7 @@ export function ChatPage() {
                           >
                             <BookOpen className="h-3.5 w-3.5 text-info" aria-hidden="true" />
                             <span>{cit.document_title}</span>
-                            {cit.page !== undefined ? (
+                            {typeof cit.page === 'number' ? (
                               <span className="text-[11px] text-ink-muted">P.{cit.page}</span>
                             ) : null}
                           </button>

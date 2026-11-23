@@ -27,6 +27,7 @@ from app.modules.chat.service import (
     ChatRuntimeDeps,
     cancel_chat_message,
     create_conversation,
+    delete_conversation,
     get_conversation_detail,
     list_conversations,
     stream_rag_chat_events,
@@ -108,6 +109,24 @@ async def get_conversation(
 ) -> ConversationDetailResponse:
     """每次打开历史会话均按当前最新 ACL 实时校验各段落来源，失权即时脱敏。"""
     return await get_conversation_detail(
+        org_ctx=org_ctx,
+        conversation_id=conversation_id,
+        session=session,
+    )
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除当前用户的指定历史会话（软删除，保留不可变审计证据）",
+)
+async def delete_conversation_route(
+    conversation_id: uuid.UUID,
+    org_ctx: OrgContext = Depends(require_permission("chat:use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> None:
+    """将指定会话标记为 DELETED，使其不再出现在最近会话列表，同时保留底层审计记录。"""
+    await delete_conversation(
         org_ctx=org_ctx,
         conversation_id=conversation_id,
         session=session,

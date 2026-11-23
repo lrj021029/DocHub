@@ -663,6 +663,14 @@ async def seed_database(
 
     qwen_acme_id = acme_profiles["qwen-text-embedding-v3"].id
     bge_acme_id = acme_profiles["local-bge-m3"].id
+    primary_acme_id = (
+        bge_acme_id if cfg.embedding_primary_provider == "local_bge" else qwen_acme_id
+    )
+    primary_beta_id = (
+        beta_profiles["local-bge-m3"].id
+        if cfg.embedding_primary_provider == "local_bge"
+        else beta_profiles["qwen-text-embedding-v3"].id
+    )
 
     finance_space = await _ensure_space(
         session,
@@ -672,7 +680,7 @@ async def seed_database(
         description="面向企业全员的公开财务报销指南与合规制度（受文档四维 ACL 控制）",
         visibility="PUBLIC",
         answer_policy="STRICT_EVIDENCE",
-        default_profile_id=qwen_acme_id,
+        default_profile_id=primary_acme_id,
     )
     hr_exec_space = await _ensure_space(
         session,
@@ -693,7 +701,7 @@ async def seed_database(
         description="公开客服话术与产品排查手册空间",
         visibility="PUBLIC",
         answer_policy="GROUNDED_WITH_GENERAL_CONTEXT",
-        default_profile_id=qwen_acme_id,
+        default_profile_id=primary_acme_id,
     )
     beta_space = await _ensure_space(
         session,
@@ -703,7 +711,7 @@ async def seed_database(
         description="Beta 组织隔离测试空间",
         visibility="PUBLIC",
         answer_policy="STRICT_EVIDENCE",
-        default_profile_id=beta_profiles["qwen-text-embedding-v3"].id,
+        default_profile_id=primary_beta_id,
     )
 
     logger.info(

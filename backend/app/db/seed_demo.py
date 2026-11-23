@@ -586,10 +586,10 @@ async def seed_demo_data() -> dict[str, Any]:
         )
 
         # 3. 场景 A 文档：高管薪酬细则（L2, 私有空间, 仅 HR 部门 + 财务经理角色, ACTIVE）
-        # L2 无本地 BGE 时用本地确定性向量器写入 Qdrant，严格不外发外部模型
+        # 当本地 BGE 已启用时，L2 机密文档直接经真实 LocalBGEEmbeddingProvider 向量化，零数据出境
         exec_pipeline = (
             pipeline
-            if not use_real_emb
+            if (not use_real_emb or get_settings().local_bge_embedding_enabled)
             else DocumentIngestionPipeline(
                 storage=storage,
                 embedding_router=_DeterministicDemoEmbeddingRouter(dimensions=1024),

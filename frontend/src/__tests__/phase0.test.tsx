@@ -262,6 +262,30 @@ describe('Phase 0 前端安全基线与工程验证', () => {
 
   describe('3. AppShell 完整 14 模块导航入口与实时健康状态渲染', () => {
     it('正确渲染全部 14 个 PRD 导航入口、组织切换器、用户菜单及后端 readyz 指示器', async () => {
+      // 注入内存登录会话以通过 RequireAuth 受保护路由守卫（不写入 localStorage）
+      setAuthSession({
+        accessToken: 'phase0-shell-memory-token',
+        csrfToken: 'phase0-csrf',
+        currentOrgId: 'org-acme',
+        organizations: [
+          {
+            id: 'org-acme',
+            name: 'Acme Corp',
+            slug: 'acme-corp',
+            status: 'ACTIVE',
+            roleNames: ['KNOWLEDGE_MANAGER'],
+          },
+        ],
+        user: {
+          id: 'u-1',
+          email: 'km@acme.local',
+          displayName: '知识管理员',
+          systemRoles: [],
+          organizationRoles: ['KNOWLEDGE_MANAGER'],
+          permissions: ['org:manage'],
+        },
+      });
+
       // 模拟 /api/v1/readyz 返回就绪状态
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         new Response(JSON.stringify({ status: 'ready', checks: { db: 'ok' } }), {

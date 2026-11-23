@@ -1,5 +1,5 @@
 /**
- * DocHub 前端共享领域类型定义（阶段 0 基线契约）
+ * DocHub 前端共享领域类型定义（阶段 0 + Slice 1 IAM 契约）
  * 与 PRD.md 及 TECHNICAL_SPEC.md 第 5/9/10/11/12 节保持一致。
  */
 
@@ -12,14 +12,90 @@ export interface OrganizationSummary {
   roleNames: string[];
 }
 
+/** 当前用户的有效部门成员关系摘要（来自 /auth/me） */
+export interface UserDepartmentSummary {
+  departmentId: string;
+  departmentName: string;
+  isPrimary: boolean;
+  membershipType: string;
+  validFrom?: string | null;
+  validUntil?: string | null;
+}
+
 /** 当前登录用户身份信息（不含任何 Secret） */
 export interface AuthUser {
   id: string;
   email: string;
   displayName: string;
+  status?: string;
   systemRoles: string[];
   organizationRoles: string[];
   permissions: string[];
+  departments?: UserDepartmentSummary[];
+}
+
+/** 组织成员记录 */
+export interface OrganizationMemberItem {
+  id: string;
+  organizationId: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  status: 'ACTIVE' | 'DISABLED' | 'INVITED' | 'REMOVED';
+  joinedAt?: string | null;
+  organizationRoles: string[];
+  systemRoles: string[];
+  departments: string[];
+}
+
+/** 部门节点模型 */
+export interface DepartmentNode {
+  id: string;
+  organizationId: string;
+  parentId: string | null;
+  name: string;
+  status: 'ACTIVE' | 'DISABLED' | 'ARCHIVED';
+  depth?: number;
+  memberCount?: number;
+  children?: DepartmentNode[];
+}
+
+/** 部门成员兼职关系记录 */
+export interface DepartmentMembershipItem {
+  id: string;
+  organizationId: string;
+  departmentId: string;
+  userId: string;
+  userEmail?: string;
+  userDisplayName?: string;
+  membershipType: 'FULL_TIME' | 'PART_TIME' | 'TEMPORARY' | string;
+  isPrimary: boolean;
+  status: 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | string;
+  validFrom?: string | null;
+  validUntil?: string | null;
+}
+
+/** 权限定义节点（来自 GET /api/v1/permissions） */
+export interface PermissionItem {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  category: string;
+  scope: 'SYSTEM' | 'ORGANIZATION' | string;
+}
+
+/** 角色定义（严格区分 SystemRole 与 OrganizationRole） */
+export interface RoleItem {
+  id: string;
+  organizationId?: string | null;
+  code: string;
+  name: string;
+  description?: string;
+  status: 'ACTIVE' | 'DISABLED' | string;
+  roleScope: 'SYSTEM' | 'ORGANIZATION';
+  permissions: string[];
+  memberCount?: number;
 }
 
 /** 敏感等级枚举（L0-L3，遵循外发安全红线） */

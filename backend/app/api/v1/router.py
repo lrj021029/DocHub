@@ -11,10 +11,14 @@ from app.api.v1.health import router as health_router
 from app.modules.acl.router import router as acl_router
 from app.modules.analytics.router import analytics_router, benchmarks_router
 from app.modules.audit.router import router as audit_router
+from app.modules.chat.router import router as chat_router
+from app.modules.citations.router import router as citations_router
 from app.modules.departments.router import router as departments_router
 from app.modules.documents.router import router as documents_router
+from app.modules.faq.router import router as faq_router
 from app.modules.identity.router import router as auth_router
 from app.modules.indexing.router import router as indexing_router
+from app.modules.knowledge_gaps.router import router as gaps_router
 from app.modules.knowledge_spaces.router import org_spaces_router, spaces_router
 from app.modules.organizations.router import router as organizations_router
 from app.modules.providers.router import router as providers_router
@@ -40,6 +44,14 @@ api_v1_router.include_router(documents_router)
 
 # Slice 3：文档异步解析、切片与 Qdrant 蓝绿索引路由
 api_v1_router.include_router(indexing_router)
+
+# Slice 4-5：受 ACL 保护的 RAG 流式问答、历史重鉴权与引用实时重鉴权路由
+api_v1_router.include_router(chat_router)
+api_v1_router.include_router(citations_router)
+
+# Slice 6-7：FAQ 脱敏挖掘、审核发布、Redis 快路径缓存与 Knowledge Gap 闭环路由
+api_v1_router.include_router(faq_router)
+api_v1_router.include_router(gaps_router)
 
 # Slice 8：运营分析、双审计中心、Provider 策略与 Benchmark 治理路由
 api_v1_router.include_router(audit_router)

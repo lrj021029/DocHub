@@ -1,0 +1,87 @@
+# ==============================================================================
+# DocHub OpenTelemetry Collector 配置文件
+# 用途：统一接收 FastAPI / Celery 上报的 OTLP Traces、Metrics、Logs，
+#       执行内存保护、敏感字段二次脱敏与批处理后，分别转发至 Tempo、Prometheus、Loki。
+# ==============================================================================
+
+extensions:
+  # 健康检查扩展，暴露于 127.0.0.1:13133
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  # 标准 OTLP 接收器（支持 gRPC 4317 与 HTTP 4318）
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # 内存限流保护，防止采集突发流量触发容器 OOM（容器上限 384 MiB）
+  memory_limiter:
+    check_interval: 2s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  # 敏感属性二次脱敏（兜底防护：遵循 TECHNICAL_SPEC §15.6，严禁在遥测中落盘密钥与敏感原文）
+  attributes/redact:
+    actions:
+      - key: http.request.header.authorization
+        action: delete
+      - key: http.request.header.cookie
+        action: delete
+      - key: http.request.header.x-api-key
+        action: delete
+      - key: api_key
+        action: delete
+      - key: password
+        action: delete
+      - key: secret
+        action: delete
+      - key: refresh_token
+        action: delete
+      - key: raw_chunk_text
+        action: delete
+
+  # 批量缓冲发送，降低后端写入开销
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  # 将分布式链路追踪发送至 Tempo（容器内网非 TLS）
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  # 将结构化日志通过 Loki 3.x 原生 OTLP HTTP 端点写入 Loki
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+
+  # 将汇总后的 OTel Metrics 暴露给 Prometheus 抓取（8889 端口）
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: dochub_otel
+    send_timestamps: true
+    metric_expiration: 5m
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, batch]
+      exporters: [otlphttp/loki]

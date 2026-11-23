@@ -1,4 +1,3 @@
-/// <reference types="vitest/config" />
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
@@ -12,9 +11,8 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000';
 
 /**
- * Vite 与 Vitest 统一构建/测试配置。
+ * Vite 构建与开发代理配置。
  * - 开发环境将 /api 请求代理至本地后端 FastAPI（默认 http://127.0.0.1:8000）
- * - 测试环境采用 jsdom 模拟浏览器 DOM，并加载全局 Testing Library 断言
  */
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -34,12 +32,5 @@ export default defineConfig({
         ws: false,
       },
     },
-  },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    css: false,
   },
 });

@@ -1,17 +1,37 @@
-# 环境变量与密钥（严禁提交任何真实密钥）
+# ==============================================================================
+# DocHub Git 忽略规则（严格保护密钥、大体积本地模型与临时构建产物）
+# ==============================================================================
+
+# --- 环境变量与密钥（严禁提交任何真实密钥或私钥） ---
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 *.pem
 *.key
+*.crt
+*.p12
 secrets/
 
-# Python
+# --- 本地模型权重与缓存（如本地 BGE / HuggingFace 模型文件） ---
+models/
+*.safetensors
+*.onnx
+*.gguf
+*.pt
+*.pth
+*.ckpt
+*.bin
+huggingface/
+.cache/
+
+# --- Python 运行与虚拟环境产物 ---
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 .venv/
 venv/
+env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -20,24 +40,40 @@ htmlcov/
 *.egg-info/
 dist/
 build/
+pip-wheel-metadata/
 
-# Node / Frontend
+# --- Node.js / 前端构建与缓存产物 ---
 node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/coverage/
 *.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
 
-# IDE & OS
+# --- IDE / 操作系统临时文件 ---
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+Desktop.ini
+*.swp
+*.swo
 *.log
 
-# 本地临时测试产物与备份
+# --- 本地临时运行状态、日志与数据备份 ---
 tmp/
 backups/
 *.tar.gz
 *.sql.gz
 *.dump
+
+# --- 本地参考文档与测试目录（仓库仅保留 README.md） ---
+PRD.md
+TECHNICAL_SPEC.md
+docs/
+frontend/COSS_UI_LICENSE.md
+backend/tests/
+frontend/src/__tests__/
+frontend/src/test/

@@ -367,6 +367,7 @@ class QdrantIndexStore:
         query_sparse: models.SparseVector | None = None,
         top_k: int = 20,
         prefetch_limit: int | None = None,
+        dense_score_threshold: float | None = None,
         acl_prefilter: ACLPrefilter | None = None,
     ) -> list[QdrantCandidateHit]:
         """执行单 Space 内 Dense + Sparse Prefetch 与 RRF 融合检索，仅返回安全候选元数据。"""
@@ -390,6 +391,7 @@ class QdrantIndexStore:
                 using=DENSE_VECTOR_NAME,
                 filter=q_filter,
                 limit=pf_limit,
+                score_threshold=dense_score_threshold,
             )
         ]
         has_sparse = bool(query_sparse is not None and query_sparse.indices)

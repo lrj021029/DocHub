@@ -69,6 +69,10 @@ class SpaceRetrievalTarget(BaseModel):
         default=None,
         description="可选 Qdrant ACL 预过滤（仅优化召回，绝不替代 PG 权威复核）",
     )
+    dense_score_threshold: float | None = Field(
+        default=None,
+        description="可选稠密向量相似度最低阈值（过滤完全无关的近正交文档）",
+    )
     top_k: int = Field(default=20, ge=1, le=200, description="单 Space 召回候选上限")
 
 
@@ -410,6 +414,7 @@ class MultiSpaceHybridRetriever:
                 query_dense=profile_dense_map[target.embedding_profile_id],
                 query_sparse=query_sparse,
                 top_k=target.top_k,
+                dense_score_threshold=target.dense_score_threshold,
                 acl_prefilter=target.acl_prefilter,
             )
             return target.space_id, hits

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { RequireAuth } from '@/components/auth/RequireAuth';
 import { AppShell } from '@/layouts/AppShell';
 import { AuthProvider } from '@/lib/auth-store';
 import { AclPage } from '@/pages/AclPage';
@@ -29,13 +30,25 @@ export function createAppQueryClient(): QueryClient {
   });
 }
 
-/** 全部 14 个 PRD 模块的路由树定义（可被主应用与测试环境共享） */
+/**
+ * 全部 14 个 PRD 模块的路由树定义（可被主应用与测试环境共享）。
+ * - `/login` 为公开登录认证路由；
+ * - 其余 13 个业务工作台路由全部受 RequireAuth 守卫保护（进入前自动尝试单次静默 Refresh）。
+ */
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<AppShell />}>
-        {/* PRD 01: 登录与当前 Organization 会话绑定 */}
-        <Route path="/login" element={<LoginPage />} />
+      {/* PRD 01: 公开登录认证页 */}
+      <Route path="/login" element={<LoginPage />} />
+
+      {/* 受认证保护的企业工作台路由 */}
+      <Route
+        element={
+          <RequireAuth>
+            <AppShell />
+          </RequireAuth>
+        }
+      >
         {/* PRD 02: 总览工作台 */}
         <Route index element={<DashboardPage />} />
         {/* PRD 03: Organization / Department / User / Role 管理 */}

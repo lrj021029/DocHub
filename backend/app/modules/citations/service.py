@@ -72,7 +72,7 @@ async def get_authorized_citation_detail(
                 resource_type="answer_citation",
                 resource_id=citation_id,
             )
-            # 先正常退出 org_rls_session 提交安全审计事件，再在事务外抛出 403，避免审计记录被回滚丢失
+            # 先正常退出 org_rls_session 提交安全审计事件，再在事务外抛 403
             denied_error = ForbiddenError(
                 code="CITATION_ACCESS_DENIED",
                 message="无权访问其他用户的会话引用",
@@ -85,7 +85,7 @@ async def get_authorized_citation_detail(
                 organization_id=org_ctx.organization_id,
             )
             if not decision.allowed:
-                # 安全红线：绝不在报错信息或审计详情中泄露受限文档标题或摘录；待事务提交落盘后再抛 403
+                # 安全红线：绝不泄露受限标题或摘录；待事务提交落盘后再抛 403
                 record_security_audit_event(
                     session,
                     organization_id=org_ctx.organization_id,

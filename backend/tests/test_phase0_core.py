@@ -414,7 +414,7 @@ async def test_org_rls_session_sets_local_config_and_blocks_cross_tenant_switch(
         sql_text, params = fake_session.executed[0]
         assert "set_config" in sql_text
         assert "true" in sql_text.lower()
-        assert params == {"setting_key": RLS_ORG_SETTING_KEY, "org_id": str(org_a)}
+        assert params == {"setting_key": RLS_ORG_SETTING_KEY, "value": str(org_a)}
 
         # 同一事务中尝试切换至其他组织必须被安全阻断
         with pytest.raises(RuntimeError, match="禁止在同一数据库事务内切换"):

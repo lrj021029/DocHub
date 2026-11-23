@@ -524,14 +524,14 @@ npm test -- --run
 
 ### 7.2 测试金字塔（L0–L3）
 
-仓库共落地 **9 个后端 Pytest 测试套件（46 个测试集用例）** 与 **4 个前端 Vitest 测试套件（17 个测试集用例）**，覆盖 Phase 0 至 Slice 8 全链路真实集成验证与 L3 安全回归门禁：
+仓库共落地 **10 个后端 Pytest 测试套件（56 个测试集用例）** 与 **4 个前端 Vitest 测试套件（17 个测试集用例）**，总计 **73 个真实自动化用例**，覆盖 Phase 0 至 Slice 8 全链路真实集成验证与 L3 独立安全对抗回归门禁：
 
 | 测试层级 | 覆盖范围 | 仓库内已落地测试文件与门禁 |
 |---|---|---|
 | **L0（单元与契约测试）** | Pydantic 契约、UUID v7、脱敏日志、`StructureAwareChunker` 表格/公式保留、外发门禁矩阵、SSE 帧解析、UI 组件与内存 AuthStore | [`backend/tests/test_phase0_core.py`](backend/tests/test_phase0_core.py)、[`backend/tests/test_parsers_chunking_providers.py`](backend/tests/test_parsers_chunking_providers.py)、[`frontend/src/__tests__/phase0.test.tsx`](frontend/src/__tests__/phase0.test.tsx)、[`frontend/src/__tests__/slice1-iam.test.tsx`](frontend/src/__tests__/slice1-iam.test.tsx)、[`frontend/src/__tests__/slice2-space-acl-docs.test.tsx`](frontend/src/__tests__/slice2-space-acl-docs.test.tsx)、[`frontend/src/__tests__/slice4-8-workspaces.test.tsx`](frontend/src/__tests__/slice4-8-workspaces.test.tsx) |
 | **L1（真实组件集成测试）** | 真实 PG 17 `app_runtime` FORCE RLS 隔离、部门闭包防环移动、Refresh Rotation 重放家族吊销、MinIO 上传与 Quarantine 发布、Qdrant Dense+Sparse 检索与蓝绿指针回滚 | [`backend/tests/test_slice1_iam_rls.py`](backend/tests/test_slice1_iam_rls.py)、[`backend/tests/test_slice2_space_acl_docs.py`](backend/tests/test_slice2_space_acl_docs.py)、[`backend/tests/test_qdrant_hybrid_retrieval.py`](backend/tests/test_qdrant_hybrid_retrieval.py)、[`backend/tests/test_slice3_ingestion_pipeline.py`](backend/tests/test_slice3_ingestion_pipeline.py) |
 | **L2（端到端业务闭环测试）** | 场景 A 受 ACL 保护的多 Space RAG 流式问答/撤权与历史重鉴权；场景 B FAQ 脱敏挖掘（HDBSCAN）、禁自审、三轴治理、Redis 缓存失效与 Knowledge Gap 回归验收；运营分析/双审计/Benchmark | [`backend/tests/test_slice4_5_chat_rag_reauth.py`](backend/tests/test_slice4_5_chat_rag_reauth.py)、[`backend/tests/test_slice6_7_faq_gap.py`](backend/tests/test_slice6_7_faq_gap.py)、[`backend/tests/test_slice8_governance.py`](backend/tests/test_slice8_governance.py) |
-| **L3（安全对抗与灾备演练）** | 跨租户 IDOR、ACL 同步延迟窗口防越权、历史对话撤权重鉴权、Prompt Injection 隔离、20 并发压测、`localStorage` 静态扫描与 `restore.ps1 -DrillOnly` 演练 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) `acl-security-regression` 阻断门禁（独立安全对抗套件持续演进中） |
+| **L3（独立安全对抗与 20 并发演练）** | 61 表 FORCE RLS 全检、跨租户 IDOR、ACL 延迟窗口 0 泄露、多来源 FAQ 木桶效应与 Redis 隔离、历史撤权审计落盘、Prompt Injection 隔离、20 并发零污染、`localStorage` 静态扫描与 `restore.ps1 -DrillOnly` | [`backend/tests/test_l3_security_adversarial.py`](backend/tests/test_l3_security_adversarial.py)（10/10 全绿，`ACL Violation = 0`）与 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) `acl-security-regression` 阻断门禁 |
 
 ---
 

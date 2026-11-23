@@ -1,0 +1,514 @@
+# ==============================================================================
+# DocHub 企业级知识库管理平台 - 主 Docker Compose 配置
+#
+# 架构与容量规范（遵循 ADR-002 与 TECHNICAL_SPEC §15）：
+# 1. Profile 分层启停：
+#    - core          ：核心数据底座（PostgreSQL 17、Redis 7、MinIO + Bucket 初始化、Qdrant）
+#    - app           ：业务应用层（FastAPI API、Celery Worker、Celery Beat、Frontend Nginx）
+#    - observability ：可观测性栈（OTel Collector、Prometheus、Loki、Tempo、Grafana）
+#    - full-demo     ：完整演示栈（包含以上全部服务）
+# 2. Windows Docker Desktop 性能与安全约束：
+#    - 所有持久化数据目录统一使用 Docker Named Volumes，避免 NTFS bind mount I/O 退化。
+#    - 所有对外端口仅绑定 127.0.0.1，禁止对外网裸露管理端口。
+#    - 为每个服务显式配置内存上限，确保在 15.4 GiB Docker Desktop 内存预算内稳定运行。
+#
+# 常用启动命令示例：
+#   docker compose --profile core up -d
+#   docker compose --profile core --profile app up -d
+#   docker compose --profile full-demo up -d
+# ==============================================================================
+
+name: dochub
+
+# 公共应用环境变量（供 api / celery-worker / celery-beat 复用，容器内使用服务名互联）
+x-backend-env: &backend-env
+  APP_ENV: ${APP_ENV:-development}
+  APP_DEBUG: ${APP_DEBUG:-true}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB:-dochub}
+  POSTGRES_MIGRATOR_USER: ${POSTGRES_MIGRATOR_USER:-app_migrator}
+  POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:-dochub_migrator_dev}
+  POSTGRES_RUNTIME_USER: ${POSTGRES_RUNTIME_USER:-app_runtime}
+  POSTGRES_RUNTIME_PASSWORD: ${POSTGRES_RUNTIME_PASSWORD:-dochub_runtime_dev}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-dochub_redis_dev}
+  REDIS_CACHE_DB: ${REDIS_CACHE_DB:-0}
+  REDIS_CELERY_BROKER_DB: ${REDIS_CELERY_BROKER_DB:-1}
+  REDIS_CELERY_RESULT_DB: ${REDIS_CELERY_RESULT_DB:-2}
+  MINIO_ENDPOINT: minio:9000
+  MINIO_EXTERNAL_ENDPOINT: ${MINIO_EXTERNAL_ENDPOINT:-127.0.0.1:9000}
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-dochub_minio_dev}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-dochub_minio_secret_dev}
+  MINIO_SECURE: ${MINIO_SECURE:-false}
+  MINIO_BUCKET_RAW: ${MINIO_BUCKET_RAW:-dochub-raw}
+  MINIO_BUCKET_ARTIFACTS: ${MINIO_BUCKET_ARTIFACTS:-dochub-artifacts}
+  QDRANT_HOST: qdrant
+  QDRANT_PORT: 6333
+  QDRANT_GRPC_PORT: 6334
+  QDRANT_API_KEY: ${QDRANT_API_KEY:-dochub_qdrant_dev_key}
+  OTEL_ENABLED: ${OTEL_ENABLED:-true}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+
+services:
+  # ============================================================================
+  # Profile: core（核心数据底座）
+  # ============================================================================
+
+  # PostgreSQL 17 主数据库（承载身份、组织、ACL、文档元数据、审计与 Outbox，启用双角色与 RLS）
+  postgres:
+    image: postgres:17-alpine
+    container_name: dochub-postgres
+    profiles: ["core", "full-demo"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dochub}
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-dochub_pg_super_dev}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # 使用 Named Volume 保障 Windows Docker Desktop I/O 性能
+      - pg_data:/var/lib/postgresql/data
+      # 首次初始化自动创建 app_migrator 与 app_runtime 最小权限角色
+      - ./infra/postgres/init-roles.sql:/docker-entrypoint-initdb.d/01-init-roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-dochub}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 1536m
+    networks:
+      - dochub_net
+
+  # Redis 7（缓存 + Celery Broker / Result Backend，强制开启密码认证）
+  redis:
+    image: redis:7-alpine
+    container_name: dochub-redis
+    profiles: ["core", "full-demo"]
+    restart: unless-stopped
+    # 使用 volatile-lru 策略：仅淘汰带过期时间的缓存键，避免误删无 TTL 的 Celery 队列消息
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:-dochub_redis_dev}
+      - --maxmemory
+      - 384mb
+      - --maxmemory-policy
+      - volatile-lru
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD:-dochub_redis_dev} redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 512m
+    networks:
+      - dochub_net
+
+  # MinIO 对象存储（保存原始上传文档与解析制品，仅监听本机回环地址）
+  minio:
+    image: minio/minio:latest
+    container_name: dochub-minio
+    profiles: ["core", "full-demo"]
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-dochub_minio_dev}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-dochub_minio_secret_dev}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1 || mc ready local >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 768m
+    networks:
+      - dochub_net
+
+  # MinIO 一次性 Bucket 初始化容器（自动创建私有 Bucket：dochub-raw 与 dochub-artifacts）
+  minio-init:
+    image: minio/mc:latest
+    container_name: dochub-minio-init
+    profiles: ["core", "full-demo"]
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-dochub_minio_dev}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-dochub_minio_secret_dev}
+      MINIO_BUCKET_RAW: ${MINIO_BUCKET_RAW:-dochub-raw}
+      MINIO_BUCKET_ARTIFACTS: ${MINIO_BUCKET_ARTIFACTS:-dochub-artifacts}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set dochub http://minio:9000 "$$MINIO_ACCESS_KEY" "$$MINIO_SECRET_KEY"
+        mc mb --ignore-existing "dochub/$$MINIO_BUCKET_RAW"
+        mc mb --ignore-existing "dochub/$$MINIO_BUCKET_ARTIFACTS"
+        # 强制设置为私有桶，严禁任何匿名公开访问
+        mc anonymous set none "dochub/$$MINIO_BUCKET_RAW"
+        mc anonymous set none "dochub/$$MINIO_BUCKET_ARTIFACTS"
+        echo "MinIO 私有 Bucket 初始化完成：$$MINIO_BUCKET_RAW, $$MINIO_BUCKET_ARTIFACTS"
+    mem_limit: 128m
+    networks:
+      - dochub_net
+
+  # Qdrant 向量数据库（支持 Dense + Sparse 混合检索，强制启用 API Key 认证）
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: dochub-qdrant
+    profiles: ["core", "full-demo"]
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-dochub_qdrant_dev_key}
+      QDRANT__TELEMETRY_DISABLED: "true"
+    ports:
+      - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    # Qdrant 官方精简镜像默认无 curl，采用 bash /dev/tcp 直接探测 /readyz 端点
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bash",
+          "-ec",
+          "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q '200'"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 1536m
+    networks:
+      - dochub_net
+
+  # ============================================================================
+  # Profile: app（核心业务应用层）
+  # ============================================================================
+
+  # FastAPI 后端 API 服务（运行期强制使用 app_runtime 数据库角色）
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dochub-api
+    profiles: ["app", "full-demo"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *backend-env
+      OTEL_SERVICE_NAME: dochub-api
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+      minio:
+        condition: service_healthy
+        required: false
+      minio-init:
+        condition: service_completed_successfully
+        required: false
+      qdrant:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/healthz', timeout=3)"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 1024m
+    networks:
+      - dochub_net
+
+  # Celery 异步任务 Worker（执行文档解析、向量化索引、Outbox 同步与 FAQ 挖掘）
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dochub-celery-worker
+    profiles: ["app", "full-demo"]
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app
+      - worker
+      - --loglevel=info
+      - --concurrency=2
+      - -Q
+      - default,ingestion,indexing,faq,outbox
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *backend-env
+      OTEL_SERVICE_NAME: dochub-celery-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+      minio:
+        condition: service_healthy
+        required: false
+      minio-init:
+        condition: service_completed_successfully
+        required: false
+      qdrant:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 1024m
+    networks:
+      - dochub_net
+
+  # Celery Beat 定时调度器（负责定期 FAQ 挖掘、Knowledge Gap 聚类与 Outbox 巡检）
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dochub-celery-beat
+    profiles: ["app", "full-demo"]
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app
+      - beat
+      - --loglevel=info
+      - --schedule=/tmp/celerybeat-schedule
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *backend-env
+      OTEL_SERVICE_NAME: dochub-celery-beat
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+    mem_limit: 256m
+    networks:
+      - dochub_net
+
+  # 前端 React + COSS UI Nginx 静态托管与 /api 反向代理（容器内 80 映射到宿主机 127.0.0.1:5173）
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dochub-frontend
+    profiles: ["app", "full-demo"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/ >/dev/null 2>&1 || curl -fsS http://127.0.0.1:80/ >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 256m
+    networks:
+      - dochub_net
+
+  # ============================================================================
+  # Profile: observability（可观测性栈：OTel + Prometheus + Loki + Tempo + Grafana）
+  # ============================================================================
+
+  # OpenTelemetry Collector（统一汇聚 Traces、Metrics、Logs 并路由至后端存储）
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    container_name: dochub-otel-collector
+    profiles: ["observability", "full-demo"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./infra/observability/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:8889:8889"
+      - "127.0.0.1:13133:13133"
+    depends_on:
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+    mem_limit: 384m
+    networks:
+      - dochub_net
+
+  # Prometheus 时序指标库（抓取 API、OTel Collector 及观测组件指标）
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: dochub-prometheus
+    profiles: ["observability", "full-demo"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+    networks:
+      - dochub_net
+
+  # Loki 日志聚合存储（支持 OTLP 原生写入与结构化日志检索）
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: dochub-loki
+    profiles: ["observability", "full-demo"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./infra/observability/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 512m
+    networks:
+      - dochub_net
+
+  # Tempo 分布式链路追踪存储（接收 OTel Collector 转发的 OTLP Traces）
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: dochub-tempo
+    profiles: ["observability", "full-demo"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./infra/observability/tempo-config.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "127.0.0.1:3200:3200"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3200/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 512m
+    networks:
+      - dochub_net
+
+  # Grafana 统一可视化看板（自动预置 Prometheus/Loki/Tempo 数据源与 DocHub 总览看板）
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: dochub-grafana
+    profiles: ["observability", "full-demo"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-dochub_grafana_dev}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/observability/grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./infra/observability/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 512m
+    networks:
+      - dochub_net
+
+# 统一采用 Docker Named Volumes，避免 Windows NTFS 宿主机目录挂载导致数据库性能退化
+volumes:
+  pg_data:
+    name: dochub_pg_data
+  redis_data:
+    name: dochub_redis_data
+  minio_data:
+    name: dochub_minio_data
+  qdrant_data:
+    name: dochub_qdrant_data
+  prometheus_data:
+    name: dochub_prometheus_data
+  loki_data:
+    name: dochub_loki_data
+  tempo_data:
+    name: dochub_tempo_data
+  grafana_data:
+    name: dochub_grafana_data
+
+networks:
+  dochub_net:
+    name: dochub_net
+    driver: bridge

@@ -1,0 +1,20 @@
+# ==============================================================================
+# DocHub Grafana 看板自动加载配置
+# 挂载位置：/etc/grafana/provisioning/dashboards/dashboards.yml
+# 自动扫描 /var/lib/grafana/dashboards 目录中的 JSON 看板定义。
+# ==============================================================================
+
+apiVersion: 1
+
+providers:
+  - name: "DocHub Dashboards"
+    orgId: 1
+    folder: "DocHub"
+    folderUid: "dochub-folder"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

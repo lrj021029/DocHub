@@ -1,0 +1,35 @@
+# ==============================================================================
+# DocHub Grafana Tempo 2.x 单节点分布式链路追踪配置
+# 用途：存储 FastAPI -> PostgreSQL / Qdrant / MinerU / LLM 全链路 Span，
+#       数据落盘至 Docker Named Volume tempo_data。
+# ==============================================================================
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  # 单块最大时长，加速本地调试时链路可查询
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    # 本地链路数据保留 48 小时，控制磁盘占用
+    block_retention: 48h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks

@@ -1,0 +1,49 @@
+# ==============================================================================
+# DocHub Prometheus 指标抓取配置
+# 用途：定时抓取 FastAPI /metrics、OTel Collector 以及观测底座自身运行指标。
+# 遵循 TECHNICAL_SPEC §15.6 指标规划：
+#   API Latency/QPS、ACL Deny、FAQ Cache Hit、MinerU 解析耗时与失败率、
+#   Embedding 吞吐、Qdrant 延迟、LLM 首字延迟与 Token 消耗、Celery 队列深度、Outbox/Index 延迟。
+# ==============================================================================
+
+global:
+  # 全局指标抓取与评估间隔
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    platform: dochub
+
+scrape_configs:
+  # 1. Prometheus 自身运行指标
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+
+  # 2. DocHub FastAPI 业务与安全指标（由 prometheus-fastapi-instrumentator 暴露）
+  - job_name: "dochub-api"
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: "dochub-api"
+
+  # 3. OpenTelemetry Collector 聚合指标（含 Celery Worker / 异步链路指标）
+  - job_name: "otel-collector"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["otel-collector:8889"]
+        labels:
+          service: "otel-collector"
+
+  # 4. Loki 服务自身健康与写入指标
+  - job_name: "loki"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["loki:3100"]
+
+  # 5. Tempo 链路存储自身运行指标
+  - job_name: "tempo"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["tempo:3200"]

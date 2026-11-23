@@ -286,13 +286,20 @@ describe('Phase 0 前端安全基线与工程验证', () => {
         },
       });
 
-      // 模拟 /api/v1/readyz 返回就绪状态
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ status: 'ready', checks: { db: 'ok' } }), {
+      // 模拟 /api/v1/readyz 返回就绪状态（每次调用构造全新 Response，避免 DashboardPage 与 AppShell 并发读取时复用已消费的流）
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/readyz')) {
+          return new Response(JSON.stringify({ status: 'ready', checks: { db: 'ok' } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(JSON.stringify({}), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
-        }),
-      );
+        });
+      });
 
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },

@@ -1,13 +1,15 @@
-import { Gauge, ShieldCheck } from 'lucide-react';
-import { ModuleWorkspace } from '@/components/common/ModuleWorkspace';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Gauge, Inbox, Play, RefreshCw, ShieldCheck } from 'lucide-react';
 import {
   Alert,
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -15,70 +17,161 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui';
+import {
+  fetchBenchmarks,
+  formatGovError,
+  triggerBenchmarkRun,
+} from '@/features/governance/api';
+import { useAuth } from '@/lib/auth-store';
 
 /**
- * PRD 模块 14：RAG / Parser Benchmark 评测台。
- * 坚守硬发布门槛：ACL Violation = 0、未授权内容进入 Reranker/LLM = 0、跨 Organization 泄露 = 0。
+ * PRD 模块 14（Slice 8 真实对接）：RAG / Parser Benchmark 评测台。
+ * 坚守硬发布门槛：ACL Violation = 0、未授权 Chunk 进入 Reranker/LLM = 0、跨 Organization 泄露 = 0。
  */
 export function BenchmarkPage() {
-  const hardGates = [
-    { name: 'ACL Violation', target: '严格等于 0', status: '待真实执行' },
-    { name: '未授权 Chunk 进入 Reranker / LLM', target: '严格等于 0', status: '待真实执行' },
-    { name: '跨 Organization 数据泄露', target: '严格等于 0', status: '待真实执行' },
-    { name: 'Recall@K / MRR / Citation Accuracy', target: '按真实测试集评测', status: '待真实执行' },
-    { name: 'MinerU 复杂 PDF / 表格 / 公式回归', target: '无敏感基准 PDF 实测', status: '待真实执行' },
-  ];
+  const queryClient = useQueryClient();
+  const { currentOrgId } = useAuth();
+
+  const runsQuery = useQuery({
+    queryKey: ['benchmarks', currentOrgId],
+    queryFn: () => fetchBenchmarks(currentOrgId!),
+    enabled: Boolean(currentOrgId),
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () => triggerBenchmarkRun(currentOrgId!, 'RAG_ACL_REGRESSION'),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['benchmarks', currentOrgId] });
+    },
+  });
+
+  const runs = runsQuery.data ?? [];
 
   return (
-    <ModuleWorkspace
-      moduleCode="PRD-14"
-      title="RAG 与解析 Benchmark"
-      description="跟踪 L0–L3 测试分层、检索/引用质量指标、MinerU 解析回归与 ACL 对抗安全门槛，严禁虚构评测分数。"
-      apiContract="GET/POST /api/v1/benchmarks/runs（真实测试数据回填）"
-      governanceBadges={['ACL Violation = 0 硬门槛', '禁止虚构基准数据']}
-    >
-      <div className="space-y-4">
-        <Alert variant="info" title="安全硬门槛不可折抵（TECHNICAL_SPEC §17.2）">
-          任何 ACL 越权、跨组织泄露或未授权正文进入模型上下文的失败均直接阻断发布，绝不可由高准确率或低延迟指标抵消。
-        </Alert>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 border-b border-line pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[10px]">
+              PRD-14
+            </Badge>
+            <h1 className="text-xl font-semibold tracking-tight text-ink">
+              RAG 与解析 Benchmark
+            </h1>
+            <Badge variant="danger">ACL Violation = 0 红线</Badge>
+            <Badge variant="neutral">禁止虚构分数</Badge>
+          </div>
+          <p className="text-sm text-ink-secondary">
+            对接 GET/POST /api/v1/benchmarks，真实记录 Recall@K、MRR、Citation Accuracy 与安全对抗零越权门槛。
+          </p>
+        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Gauge className="h-4 w-4 text-ink-muted" aria-hidden="true" />
-              评测门槛与回归清单
-            </CardTitle>
-            <CardDescription>
-              所有结果将在 L2/L3 端到端与安全对抗测试执行后由后端持久化写入 BenchmarkRun。
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void runsQuery.refetch()}
+            disabled={runsQuery.isFetching || !currentOrgId}
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            刷新
+          </Button>
+          <Button
+            size="sm"
+            loading={triggerMutation.isPending}
+            disabled={!currentOrgId}
+            onClick={() => triggerMutation.mutate()}
+          >
+            <Play className="h-3.5 w-3.5" aria-hidden="true" />
+            触发 Benchmark 评测
+          </Button>
+        </div>
+      </div>
+
+      <Alert variant="info" title="发布阻断性安全红线（TECHNICAL_SPEC §17.2）" icon={<ShieldCheck className="h-4 w-4" />}>
+        <strong>ACL Violation = 0 · 未授权 Chunk 进入 Reranker/LLM = 0 · 跨 Organization 泄露 = 0</strong>
+        。任何安全失败均不可由 Recall 或延迟指标抵消。
+      </Alert>
+
+      {triggerMutation.isError ? (
+        <Alert variant="danger" title="触发评测失败">
+          {formatGovError(triggerMutation.error, '无法启动 Benchmark 运行')}
+        </Alert>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Gauge className="h-4 w-4 text-ink-muted" aria-hidden="true" />
+            Benchmark 历史执行记录（{runs.length}）
+          </CardTitle>
+          <CardDescription>仅展示后端持久化写入的真实 BenchmarkRun 评测结果。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {runsQuery.isLoading ? (
+            <div className="space-y-2.5">
+              <Skeleton shape="block" className="h-12 w-full" />
+              <Skeleton shape="block" className="h-12 w-full" />
+            </div>
+          ) : runsQuery.isError ? (
+            <Alert variant="danger" title="加载 Benchmark 失败">
+              {formatGovError(runsQuery.error, '无法获取评测记录')}
+            </Alert>
+          ) : runs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-line py-10 text-center">
+              <Inbox className="h-5 w-5 text-ink-muted" aria-hidden="true" />
+              <p className="mt-2 text-sm font-medium text-ink">暂无 Benchmark 运行记录</p>
+              <p className="mt-1 text-xs text-ink-muted">点击右上角按钮可发起真实评测任务。</p>
+            </div>
+          ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>评测维度</TableHead>
-                  <TableHead>验收门槛</TableHead>
-                  <TableHead>当前状态</TableHead>
+                  <TableHead>套件 / 状态</TableHead>
+                  <TableHead>Recall@K</TableHead>
+                  <TableHead>MRR</TableHead>
+                  <TableHead>Citation Accuracy</TableHead>
+                  <TableHead>ACL 安全红线（须全 0）</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {hardGates.map((gate) => (
-                  <TableRow key={gate.name}>
-                    <TableCell className="font-medium">{gate.name}</TableCell>
-                    <TableCell className="text-xs text-ink-secondary">{gate.target}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="gap-1">
-                        <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-                        {gate.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {runs.map((run) => {
+                  const safePass =
+                    run.aclViolations === 0 &&
+                    run.unauthorizedPromptChunks === 0 &&
+                    run.crossOrgLeaks === 0;
+                  return (
+                    <TableRow key={run.id}>
+                      <TableCell>
+                        <p className="font-mono text-xs font-medium text-ink">{run.suiteType}</p>
+                        <Badge variant={run.status === 'COMPLETED' ? 'success' : 'info'} className="mt-1 text-[10px]">
+                          {run.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {run.recallAtK !== null ? `${(run.recallAtK * 100).toFixed(1)}%` : '—'}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {run.mrr !== null ? run.mrr.toFixed(3) : '—'}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {run.citationAccuracy !== null
+                          ? `${(run.citationAccuracy * 100).toFixed(1)}%`
+                          : '—'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={safePass ? 'success' : 'danger'} className="font-mono text-[10px]">
+                          ACL={run.aclViolations} · PromptLeak={run.unauthorizedPromptChunks} · CrossOrg={run.crossOrgLeaks}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-      </div>
-    </ModuleWorkspace>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

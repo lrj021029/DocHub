@@ -1,77 +1,204 @@
-import { BarChart3 } from 'lucide-react';
-import { ModuleWorkspace } from '@/components/common/ModuleWorkspace';
+import { useQuery } from '@tanstack/react-query';
+import { BarChart3, RefreshCw, ShieldAlert } from 'lucide-react';
 import {
   Alert,
+  Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  Skeleton,
 } from '@/components/ui';
+import {
+  fetchAnalyticsOverview,
+  fetchFaqAnalytics,
+  fetchGapAnalytics,
+  formatGovError,
+} from '@/features/governance/api';
+import { useAuth } from '@/lib/auth-store';
 
 /**
- * PRD 模块 11：数据运营看板。
- * 严格按当前 Organization 和授权范围过滤，绝不通过热门排行或侧信道暴露受限文档标题。
+ * PRD 模块 11（Slice 8 真实对接）：数据运营分析看板。
+ * 严格按当前 Organization 与授权范围过滤，清晰声明无受限文档标题/排行旁路暴露。
  */
 export function AnalyticsPage() {
-  const metricGroups = [
-    {
-      title: '访问与问答活跃度',
-      items: ['PV / UV 与活跃会话数', '首 Token 延迟（TTFT）与完整响应延迟', 'Token 消耗与模型成本明细'],
-    },
-    {
-      title: '知识生产与解析质量',
-      items: ['文档数 / DocumentVersion / 有效 Chunk 数', '导入成功率、MinerU 解析失败率与 OCR 阻断率', '索引构建耗时与代次分布'],
-    },
-    {
-      title: 'FAQ 沉淀与知识缺口闭环',
-      items: ['FAQ 命中率、直接回答率与用户有用率', 'STALE / EXPIRED 来源健康占比', 'Knowledge Gap 解决率与平均处理时长'],
-    },
-  ];
+  const { currentOrgId } = useAuth();
+
+  const overviewQuery = useQuery({
+    queryKey: ['analytics', currentOrgId, 'overview'],
+    queryFn: () => fetchAnalyticsOverview(currentOrgId!),
+    enabled: Boolean(currentOrgId),
+  });
+
+  const faqQuery = useQuery({
+    queryKey: ['analytics', currentOrgId, 'faq'],
+    queryFn: () => fetchFaqAnalytics(currentOrgId!),
+    enabled: Boolean(currentOrgId),
+  });
+
+  const gapQuery = useQuery({
+    queryKey: ['analytics', currentOrgId, 'knowledge-gaps'],
+    queryFn: () => fetchGapAnalytics(currentOrgId!),
+    enabled: Boolean(currentOrgId),
+  });
+
+  const overview = overviewQuery.data;
+  const faq = faqQuery.data;
+  const gap = gapQuery.data;
+  const isLoading = overviewQuery.isLoading || faqQuery.isLoading || gapQuery.isLoading;
+  const firstError = overviewQuery.error ?? faqQuery.error ?? gapQuery.error;
 
   return (
-    <ModuleWorkspace
-      moduleCode="PRD-11"
-      title="数据运营分析看板"
-      description="按当前 Organization 授权范围统计知识资产规模、检索与模型耗时、FAQ 命中及 Knowledge Gap 闭环效率。"
-      apiContract="GET /api/v1/analytics/overview · /analytics/faq · /analytics/knowledge-gaps"
-      governanceBadges={['受限文档侧信道防护', '禁止伪造覆盖率']}
-      metrics={[
-        { label: '近 7 日 PV / UV', value: '--', hint: '按当前 Organization 隔离统计' },
-        { label: 'FAQ 命中率', value: '--', hint: '仅统计通过 ACL 复核的有效命中' },
-        { label: '首 Token 延迟 P95', value: '--', hint: '真实延迟待 Benchmark 与流量观测汇总' },
-        { label: 'Gap 闭环解决率', value: '--', hint: '基于通过回归验收的 RESOLVED 任务' },
-      ]}
-    >
-      <div className="space-y-4">
-        <Alert variant="info" title="隐私与防侧信道原则（PRD §9 & §10.1）">
-          受限文档绝不会出现在普通运营看板的热门文档榜或高频词云中；权限拒绝事件详情仅在经授权的安全审计视图展示。
-        </Alert>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {metricGroups.map((group) => (
-            <Card key={group.title}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4 text-ink-muted" aria-hidden="true" />
-                  {group.title}
-                </CardTitle>
-                <CardDescription>Slice 8 接入真实聚合指标与 Grafana 观测面板</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-xs text-ink-secondary">
-                  {group.items.map((item) => (
-                    <li key={item} className="flex items-start gap-2">
-                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          ))}
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 border-b border-line pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[10px]">
+              PRD-11
+            </Badge>
+            <h1 className="text-xl font-semibold tracking-tight text-ink">数据运营分析看板</h1>
+            <Badge variant="info">组织与授权范围过滤</Badge>
+            <Badge variant="warning">受限资源零旁路暴露</Badge>
+          </div>
+          <p className="text-sm text-ink-secondary">
+            实时汇聚 PV/UV、文档与 Chunk 规模、FAQ 命中与 STALE 比例、Knowledge Gap 解决率及检索/Token 耗时。
+          </p>
         </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void overviewQuery.refetch();
+            void faqQuery.refetch();
+            void gapQuery.refetch();
+          }}
+        >
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+          刷新指标
+        </Button>
       </div>
-    </ModuleWorkspace>
+
+      <Alert variant="info" title="隐私与防侧信道原则（PRD §9 & §10.1）" icon={<ShieldAlert className="h-4 w-4" />}>
+        <strong>仅展示当前 Organization 与授权范围指标，无受限旁路</strong>
+        ；受限文档标题、热门排行与 ACL 拒绝详情绝不出现在普通运营看板中。
+      </Alert>
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Skeleton shape="block" className="h-36" />
+          <Skeleton shape="block" className="h-36" />
+          <Skeleton shape="block" className="h-36" />
+        </div>
+      ) : firstError ? (
+        <Alert variant="danger" title="加载运营指标失败">
+          {formatGovError(firstError, '无法获取运营分析数据')}
+        </Alert>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 text-ink-muted" aria-hidden="true" />
+                问答活跃度与性能耗时
+              </CardTitle>
+              <CardDescription>来自 GET /api/v1/analytics/overview</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-ink-muted">PV / UV</span>
+                <span className="font-mono font-semibold text-ink">
+                  {overview?.pv ?? 0} / {overview?.uv ?? 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">活跃会话数</span>
+                <span className="font-mono font-semibold text-ink">
+                  {overview?.activeConversations ?? 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">首 Token 延迟 P95</span>
+                <span className="font-mono font-semibold text-ink">
+                  {overview?.p95FirstTokenMs !== null && overview?.p95FirstTokenMs !== undefined
+                    ? `${overview.p95FirstTokenMs} ms`
+                    : '待采集'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">累计 Token 消耗</span>
+                <span className="font-mono font-semibold text-ink">
+                  {(overview?.totalTokens ?? 0).toLocaleString()}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>知识资产与 FAQ 效能</CardTitle>
+              <CardDescription>来自 GET /api/v1/analytics/faq</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-ink-muted">有效文档 / Chunk</span>
+                <span className="font-mono font-semibold text-ink">
+                  {overview?.activeDocuments ?? 0} / {overview?.activeChunks ?? 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">已发布 FAQ / 候选</span>
+                <span className="font-mono font-semibold text-ink">
+                  {faq?.publishedCount ?? 0} / {faq?.candidateCount ?? 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">FAQ 命中率</span>
+                <span className="font-mono font-semibold text-success">
+                  {((faq?.hitRate ?? overview?.faqHitRate ?? 0) * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">STALE 过期比例</span>
+                <span className="font-mono font-semibold text-warning">
+                  {((overview?.staleFaqRatio ?? 0) * 100).toFixed(1)}%
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Knowledge Gap 闭环效率</CardTitle>
+              <CardDescription>来自 GET /api/v1/analytics/knowledge-gaps</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-ink-muted">缺口总数 / 已解决</span>
+                <span className="font-mono font-semibold text-ink">
+                  {gap?.totalGaps ?? 0} / {gap?.resolvedGaps ?? 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">闭环解决率</span>
+                <span className="font-mono font-semibold text-success">
+                  {((gap?.resolutionRate ?? overview?.gapResolutionRate ?? 0) * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-muted">平均闭环时长</span>
+                <span className="font-mono font-semibold text-ink">
+                  {gap?.avgResolutionHours !== null && gap?.avgResolutionHours !== undefined
+                    ? `${gap.avgResolutionHours.toFixed(1)} h`
+                    : '待采集'}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
   );
 }

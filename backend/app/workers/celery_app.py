@@ -128,6 +128,7 @@ def create_celery_app(settings: Settings | None = None) -> Celery:
         "dochub",
         broker=cfg.celery_broker_url.get_secret_value(),
         backend=cfg.celery_result_url.get_secret_value(),
+        include=["app.workers.tasks"],
         task_cls=IdempotentRetryTask,
     )
 

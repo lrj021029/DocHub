@@ -88,7 +88,7 @@ class Settings(BaseSettings):
 
     # --- PostgreSQL 双角色连接配置（严禁运行期使用迁移角色或超级用户） ---
     postgres_host: str = Field(default="127.0.0.1", description="PostgreSQL 主机")
-    postgres_port: int = Field(default=5432, ge=1, le=65535, description="PostgreSQL 端口")
+    postgres_port: int = Field(default=15432, ge=1, le=65535, description="PostgreSQL 端口")
     postgres_db: str = Field(default="dochub", description="PostgreSQL 数据库名")
     postgres_migrator_user: str = Field(
         default="app_migrator",
@@ -124,7 +124,7 @@ class Settings(BaseSettings):
 
     # --- Redis（缓存 + Celery Broker/Result） ---
     redis_host: str = Field(default="127.0.0.1", description="Redis 主机")
-    redis_port: int = Field(default=6379, ge=1, le=65535, description="Redis 端口")
+    redis_port: int = Field(default=16379, ge=1, le=65535, description="Redis 端口")
     redis_password: SecretStr = Field(
         default=SecretStr("dochub_redis_dev"),
         description="Redis 访问密码",
@@ -134,9 +134,9 @@ class Settings(BaseSettings):
     redis_celery_result_db: int = Field(default=2, ge=0, le=15, description="Celery Result DB 编号")
 
     # --- MinIO（原始文档与解析制品对象存储） ---
-    minio_endpoint: str = Field(default="127.0.0.1:9000", description="MinIO 内部服务地址")
+    minio_endpoint: str = Field(default="127.0.0.1:19000", description="MinIO 内部服务地址")
     minio_external_endpoint: str = Field(
-        default="127.0.0.1:9000",
+        default="127.0.0.1:19000",
         description="MinIO 预签名对外访问地址",
     )
     minio_access_key: SecretStr = Field(

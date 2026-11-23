@@ -68,7 +68,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-dochub_pg_super_dev}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
     volumes:
       # 使用 Named Volume 保障 Windows Docker Desktop I/O 性能
       - pg_data:/var/lib/postgresql/data
@@ -102,7 +102,7 @@ services:
       - --maxmemory-policy
       - volatile-lru
     ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-16379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -127,12 +127,12 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-dochub_minio_dev}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-dochub_minio_secret_dev}
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:${MINIO_API_PORT:-19000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-19001}:9001"
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "mc ready local >/dev/null 2>&1 || curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1 || bash -ec 'exec 3<>/dev/tcp/127.0.0.1/9000'"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -363,7 +363,7 @@ services:
 
   # OpenTelemetry Collector（统一汇聚 Traces、Metrics、Logs 并路由至后端存储）
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.114.0
+    image: otel/opentelemetry-collector-contrib:0.116.1
     container_name: dochub-otel-collector
     profiles: ["observability", "full-demo"]
     restart: unless-stopped
@@ -371,10 +371,10 @@ services:
     volumes:
       - ./infra/observability/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:
-      - "127.0.0.1:4317:4317"
-      - "127.0.0.1:4318:4318"
-      - "127.0.0.1:8889:8889"
-      - "127.0.0.1:13133:13133"
+      - "127.0.0.1:${OTEL_GRPC_PORT:-14317}:4317"
+      - "127.0.0.1:${OTEL_HTTP_PORT:-14318}:4318"
+      - "127.0.0.1:${OTEL_PROM_PORT:-18889}:8889"
+      - "127.0.0.1:${OTEL_HEALTH_PORT:-13133}:13133"
     depends_on:
       loki:
         condition: service_started
@@ -399,7 +399,7 @@ services:
       - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
-      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-19090}:9090"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
       interval: 15s
@@ -412,7 +412,7 @@ services:
 
   # Loki 日志聚合存储（支持 OTLP 原生写入与结构化日志检索）
   loki:
-    image: grafana/loki:3.2.1
+    image: grafana/loki:3.3.2
     container_name: dochub-loki
     profiles: ["observability", "full-demo"]
     restart: unless-stopped
@@ -421,7 +421,7 @@ services:
       - ./infra/observability/loki-config.yaml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
     ports:
-      - "127.0.0.1:3100:3100"
+      - "127.0.0.1:${LOKI_PORT:-13100}:3100"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3100/ready"]
       interval: 15s
@@ -443,7 +443,7 @@ services:
       - ./infra/observability/tempo-config.yaml:/etc/tempo/tempo.yaml:ro
       - tempo_data:/var/tempo
     ports:
-      - "127.0.0.1:3200:3200"
+      - "127.0.0.1:${TEMPO_PORT:-13200}:3200"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3200/ready"]
       interval: 15s
@@ -456,7 +456,7 @@ services:
 
   # Grafana 统一可视化看板（自动预置 Prometheus/Loki/Tempo 数据源与 DocHub 总览看板）
   grafana:
-    image: grafana/grafana:11.3.1
+    image: grafana/grafana:11.4.0
     container_name: dochub-grafana
     profiles: ["observability", "full-demo"]
     restart: unless-stopped
@@ -472,7 +472,7 @@ services:
       - ./infra/observability/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
       - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-13000}:3000"
     depends_on:
       prometheus:
         condition: service_healthy

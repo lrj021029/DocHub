@@ -99,7 +99,7 @@ describe('Slice 1：登录认证闭环、多组织切换与 IAM 管理台测试'
 
     // 登录成功后跳转至总览工作台并展示用户邮箱与角色徽章
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: '总览工作台' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /知识治理总览/ })).toBeInTheDocument();
     });
 
     expect(getAccessToken()).toBe('jwt-slice1-in-memory-token');

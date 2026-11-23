@@ -184,6 +184,7 @@ class AuthoritativeACLEngine:
                             OrganizationRolePermission.organization_role_id.in_(active_role_ids),
                             Permission.code == "document:read",
                         )
+                        .limit(1)
                     )
                 ).scalar_one_or_none()
                 has_doc_read = perm_hit is not None

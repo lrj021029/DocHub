@@ -43,6 +43,8 @@ async def get_authorized_citation_detail(
 ) -> CitationDetailResponse:
     """实时重鉴权并返回单条引用定位与证据摘录；失权/无权时严格返回 403。"""
     engine = acl_engine or AuthoritativeACLEngine()
+    denied_error: ForbiddenError | None = None
+    response: CitationDetailResponse | None = None
 
     async with org_rls_session(session, org_ctx.organization_id, user_id=org_ctx.principal.user_id):
         row = (
@@ -70,121 +72,129 @@ async def get_authorized_citation_detail(
                 resource_type="answer_citation",
                 resource_id=citation_id,
             )
-            raise ForbiddenError(
+            # 先正常退出 org_rls_session 提交安全审计事件，再在事务外抛出 403，避免审计记录被回滚丢失
+            denied_error = ForbiddenError(
                 code="CITATION_ACCESS_DENIED",
                 message="无权访问其他用户的会话引用",
             )
-
-        decision = await engine.check_document_access(
-            session,
-            org_ctx,
-            citation.document_id,
-            organization_id=org_ctx.organization_id,
-        )
-        if not decision.allowed:
-            # 安全红线：绝不在报错信息或审计详情中泄露受限文档标题或摘录
-            record_security_audit_event(
+        else:
+            decision = await engine.check_document_access(
                 session,
+                org_ctx,
+                citation.document_id,
                 organization_id=org_ctx.organization_id,
-                actor_user_id=org_ctx.principal.user_id,
-                event_type="citation.access_denied",
-                severity="LOW",
-                resource_type="answer_citation",
-                resource_id=citation_id,
-                details={"reason_code": decision.reason_code},
             )
-            raise ForbiddenError(
-                code="CITATION_ACCESS_DENIED",
-                message="您当前已不再具备该引用来源文档的访问权限",
-            )
-
-        doc = (
-            await session.execute(
-                select(Document).where(
-                    Document.id == citation.document_id,
-                    Document.organization_id == org_ctx.organization_id,
+            if not decision.allowed:
+                # 安全红线：绝不在报错信息或审计详情中泄露受限文档标题或摘录；待事务提交落盘后再抛 403
+                record_security_audit_event(
+                    session,
+                    organization_id=org_ctx.organization_id,
+                    actor_user_id=org_ctx.principal.user_id,
+                    event_type="citation.access_denied",
+                    severity="LOW",
+                    resource_type="answer_citation",
+                    resource_id=citation_id,
+                    details={"reason_code": decision.reason_code},
                 )
-            )
-        ).scalar_one_or_none()
-        if doc is None:
-            raise NotFoundError(code="DOCUMENT_NOT_FOUND", message="来源文档不存在或已删除")
-
-        chunk = (
-            await session.execute(
-                select(Chunk).where(
-                    Chunk.id == citation.chunk_id,
-                    Chunk.organization_id == org_ctx.organization_id,
+                denied_error = ForbiddenError(
+                    code="CITATION_ACCESS_DENIED",
+                    message="您当前已不再具备该引用来源文档的访问权限",
                 )
-            )
-        ).scalar_one_or_none()
-
-        heading_str: str | None = None
-        quote_raw = chunk.content_text if chunk else ""
-
-        if citation.block_id is not None:
-            block = (
-                await session.execute(
-                    select(ParsedBlock).where(
-                        ParsedBlock.id == citation.block_id,
-                        ParsedBlock.organization_id == org_ctx.organization_id,
-                    )
-                )
-            ).scalar_one_or_none()
-            if block is not None:
-                if block.heading_path:
-                    heading_str = " > ".join(str(x) for x in block.heading_path)
-                if not quote_raw and block.content_text:
-                    quote_raw = block.content_text
-
-        if not heading_str and chunk and isinstance(chunk.metadata_json, dict):
-            hp = chunk.metadata_json.get("heading_path")
-            if isinstance(hp, list) and hp:
-                heading_str = " > ".join(str(x) for x in hp)
-
-        # 若该文档版本存在对应页码的 page_image 产物，返回内部标识路径（绝不伪造）
-        page_image_url: str | None = None
-        if citation.page_number is not None:
-            page_artifacts = (
-                (
+            else:
+                doc = (
                     await session.execute(
-                        select(ParsedArtifact).where(
-                            ParsedArtifact.organization_id == org_ctx.organization_id,
-                            ParsedArtifact.document_version_id == citation.document_version_id,
-                            ParsedArtifact.artifact_type == "page_image",
+                        select(Document).where(
+                            Document.id == citation.document_id,
+                            Document.organization_id == org_ctx.organization_id,
                         )
                     )
+                ).scalar_one_or_none()
+                if doc is None:
+                    raise NotFoundError(code="DOCUMENT_NOT_FOUND", message="来源文档不存在或已删除")
+
+                chunk = (
+                    await session.execute(
+                        select(Chunk).where(
+                            Chunk.id == citation.chunk_id,
+                            Chunk.organization_id == org_ctx.organization_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+
+                heading_str: str | None = None
+                quote_raw = chunk.content_text if chunk else ""
+
+                if citation.block_id is not None:
+                    block = (
+                        await session.execute(
+                            select(ParsedBlock).where(
+                                ParsedBlock.id == citation.block_id,
+                                ParsedBlock.organization_id == org_ctx.organization_id,
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if block is not None:
+                        if block.heading_path:
+                            heading_str = " > ".join(str(x) for x in block.heading_path)
+                        if not quote_raw and block.content_text:
+                            quote_raw = block.content_text
+
+                if not heading_str and chunk and isinstance(chunk.metadata_json, dict):
+                    hp = chunk.metadata_json.get("heading_path")
+                    if isinstance(hp, list) and hp:
+                        heading_str = " > ".join(str(x) for x in hp)
+
+                # 若该文档版本存在对应页码的 page_image 产物，返回内部标识路径（绝不伪造）
+                page_image_url: str | None = None
+                if citation.page_number is not None:
+                    page_artifacts = (
+                        (
+                            await session.execute(
+                                select(ParsedArtifact).where(
+                                    ParsedArtifact.organization_id == org_ctx.organization_id,
+                                    ParsedArtifact.document_version_id
+                                    == citation.document_version_id,
+                                    ParsedArtifact.artifact_type == "page_image",
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    for art in page_artifacts:
+                        meta: dict[str, Any] = art.metadata_json or {}
+                        if meta.get("page_number") == citation.page_number:
+                            page_image_url = f"/api/v1/citations/{citation.id}/page-image"
+                            break
+
+                excerpt = _format_quote_excerpt(quote_raw)
+                current_acl_rev = (
+                    decision.acl_revision
+                    if decision.acl_revision is not None
+                    else citation.acl_revision
                 )
-                .scalars()
-                .all()
-            )
-            for art in page_artifacts:
-                meta: dict[str, Any] = art.metadata_json or {}
-                if meta.get("page_number") == citation.page_number:
-                    page_image_url = f"/api/v1/citations/{citation.id}/page-image"
-                    break
+                response = CitationDetailResponse(
+                    citation_id=citation.id,
+                    document_id=citation.document_id,
+                    document_version_id=citation.document_version_id,
+                    document_title=doc.title,
+                    chunk_id=citation.chunk_id,
+                    block_id=citation.block_id,
+                    page_number=citation.page_number,
+                    page=citation.page_number,
+                    heading_path=heading_str,
+                    quote_text=excerpt,
+                    quote=excerpt,
+                    quote_excerpt=excerpt,
+                    page_image_url=page_image_url,
+                    bbox_json=citation.bbox_json,
+                    bbox=citation.bbox_json,
+                    acl_revision=current_acl_rev,
+                    authorized=True,
+                    denied_reason=None,
+                )
 
-        excerpt = _format_quote_excerpt(quote_raw)
-        current_acl_rev = (
-            decision.acl_revision if decision.acl_revision is not None else citation.acl_revision
-        )
-
-    return CitationDetailResponse(
-        citation_id=citation.id,
-        document_id=citation.document_id,
-        document_version_id=citation.document_version_id,
-        document_title=doc.title,
-        chunk_id=citation.chunk_id,
-        block_id=citation.block_id,
-        page_number=citation.page_number,
-        page=citation.page_number,
-        heading_path=heading_str,
-        quote_text=excerpt,
-        quote=excerpt,
-        quote_excerpt=excerpt,
-        page_image_url=page_image_url,
-        bbox_json=citation.bbox_json,
-        bbox=citation.bbox_json,
-        acl_revision=current_acl_rev,
-        authorized=True,
-        denied_reason=None,
-    )
+    if denied_error is not None:
+        raise denied_error
+    assert response is not None
+    return response
